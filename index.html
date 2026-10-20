@@ -1,0 +1,2226 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b2b26">
+  <meta name="description"
+        content="WGB — отель с рестораном для группового размещения и деловых поездок. Рассчитайте проживание и скачайте план поездки в Excel.">
+
+  <title>WGB — отель для деловых поездок и групп</title>
+
+  <style>
+    :root {
+      --ink: #0b2b26;
+      --deep: #051f20;
+      --green: #235347;
+      --sage: #8eb69b;
+      --mint: #daf1de;
+      --paper: #f5f4ed;
+      --line: #d4dad0;
+      --muted: #687568;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 24px;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+    }
+
+    body.modal-open { overflow: hidden; }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button, input, select, textarea { font: inherit; }
+
+    button, a { touch-action: manipulation; }
+
+    button { cursor: pointer; }
+
+    button:disabled {
+      opacity: .65;
+      cursor: wait;
+    }
+
+    button:focus-visible,
+    a:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    summary:focus-visible {
+      outline: 3px solid var(--sage);
+      outline-offset: 4px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    h1, h2, h3 { font-weight: 400; }
+
+    em {
+      color: #6d8d76;
+      font-style: normal;
+    }
+
+    img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .symbols {
+      position: absolute;
+      width: 0;
+      height: 0;
+      overflow: hidden;
+    }
+
+    .announcement {
+      min-height: 33px;
+      padding: 8px 5%;
+      background: var(--ink);
+      color: var(--paper);
+      display: flex;
+      justify-content: space-between;
+      gap: 15px;
+      font-size: 9px;
+      letter-spacing: 1.5px;
+    }
+
+    .announcement span {
+      opacity: .7;
+      letter-spacing: 0;
+    }
+
+    header {
+      min-height: 100px;
+      padding: 20px 5%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 30px;
+      border-bottom: 1px solid var(--line);
+      position: relative;
+    }
+
+    .brand {
+      display: inline-block;
+      font-size: 42px;
+      letter-spacing: 7px;
+      line-height: 1;
+      flex-shrink: 0;
+    }
+
+    .brand small {
+      display: block;
+      margin-top: 11px;
+      font-size: 7px;
+      letter-spacing: 1.8px;
+    }
+
+    nav {
+      display: flex;
+      gap: 28px;
+      font-size: 12px;
+    }
+
+    nav a:hover { color: #73967b; }
+
+    .menu-button {
+      display: none;
+      border: 0;
+      background: none;
+      color: var(--ink);
+      font-size: 25px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 30px;
+      min-height: 51px;
+      padding: 16px 23px;
+      background: var(--ink);
+      color: var(--paper);
+      border: 1px solid var(--ink);
+      font-size: 12px;
+      transition: background .2s;
+    }
+
+    .button:hover { background: var(--green); }
+
+    .button span {
+      font-size: 20px;
+      line-height: 1;
+    }
+
+    .button.small {
+      min-height: 44px;
+      font-size: 11px;
+      padding: 12px 17px;
+    }
+
+    .button.light {
+      color: var(--ink);
+      background: var(--mint);
+      border-color: var(--mint);
+    }
+
+    .button.light:hover { background: #bedcc4; }
+
+    .text-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 25px;
+      padding: 0 0 12px;
+      border: 0;
+      border-bottom: 1px solid var(--ink);
+      background: none;
+      color: var(--ink);
+      font-size: 12px;
+      text-align: left;
+    }
+
+    .text-link span { font-size: 21px; }
+
+    .eyebrow {
+      font-size: 10px;
+      line-height: 1.6;
+      letter-spacing: 1.8px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      min-height: 660px;
+    }
+
+    .hero-copy {
+      padding: 62px 9% 35px 10%;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .stars {
+      margin-left: 15px;
+      color: #77927c;
+      letter-spacing: 3px;
+    }
+
+    h1 {
+      font-size: clamp(48px, 5.2vw, 82px);
+      line-height: 1.06;
+      letter-spacing: -3px;
+      margin: 34px 0 26px;
+    }
+
+    .hero-intro {
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.8;
+      max-width: 370px;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 25px;
+      margin: 30px 0 45px;
+    }
+
+    .hero-actions .text-link {
+      border-bottom: 0;
+      padding: 12px 0;
+      font-size: 11px;
+    }
+
+    .hero-caption {
+      margin-top: auto;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 8px;
+      letter-spacing: 1.5px;
+      color: var(--muted);
+    }
+
+    .hero-caption::before {
+      content: "";
+      width: 28px;
+      height: 1px;
+      background: var(--muted);
+    }
+
+    .hero-photo {
+      position: relative;
+      min-height: 660px;
+      overflow: hidden;
+    }
+
+    .hero-photo img {
+      position: absolute;
+      inset: 0;
+      filter: brightness(.82);
+    }
+
+    .photo-caption {
+      position: absolute;
+      top: 27px;
+      left: 28px;
+      right: 28px;
+      display: flex;
+      justify-content: space-between;
+      color: white;
+      font-size: 8px;
+      letter-spacing: 1.5px;
+    }
+
+    .round-arrow {
+      position: absolute;
+      right: 28px;
+      bottom: 28px;
+      display: grid;
+      place-items: center;
+      width: 49px;
+      height: 49px;
+      background: var(--paper);
+      border-radius: 50%;
+      font-size: 25px;
+    }
+
+    .benefits {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      padding: 22px 5%;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .benefits > div {
+      display: flex;
+      align-items: center;
+      gap: 18px;
+      padding: 10px 25px;
+      border-right: 1px solid var(--line);
+      font-size: 12px;
+    }
+
+    .benefits > div:first-child { padding-left: 0; }
+
+    .benefits > div:last-child { border: 0; }
+
+    .icon {
+      width: 30px;
+      height: 30px;
+      fill: currentColor;
+      flex-shrink: 0;
+    }
+
+    .section { padding: 85px 6.5%; }
+
+    .section-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+
+    .side-note {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    h2 {
+      font-size: clamp(34px, 3.4vw, 54px);
+      line-height: 1.16;
+      letter-spacing: -1.7px;
+    }
+
+    .section-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      gap: 45px;
+      margin-bottom: 42px;
+    }
+
+    .section-heading > p {
+      max-width: 320px;
+      font-size: 13px;
+      line-height: 1.9;
+      color: var(--muted);
+    }
+
+    .solutions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .solutions article {
+      padding: 32px 30px 32px 0;
+      margin-right: 30px;
+      border-right: 1px solid var(--line);
+      position: relative;
+    }
+
+    .solutions article:last-child {
+      padding-right: 0;
+      margin-right: 0;
+      border: 0;
+    }
+
+    .solutions .index {
+      position: absolute;
+      right: 25px;
+      top: 32px;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .solutions .icon {
+      width: 36px;
+      height: 36px;
+      margin-bottom: 27px;
+    }
+
+    .solutions h3 {
+      font-size: 22px;
+      margin-bottom: 15px;
+    }
+
+    .solutions p {
+      font-size: 12px;
+      line-height: 1.9;
+      color: var(--muted);
+    }
+
+    .story {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: #e7ece2;
+    }
+
+    .story-photo { min-height: 510px; }
+
+    .story-copy {
+      padding: 65px 12%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: flex-start;
+    }
+
+    .story h2 { margin: 25px 0; }
+
+    .story-copy > p:not(.eyebrow) {
+      font-size: 13px;
+      line-height: 1.9;
+      color: var(--muted);
+    }
+
+    .story .text-link { margin-top: 28px; }
+
+    .room-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 30px;
+    }
+
+    .room-photo {
+      position: relative;
+      height: 335px;
+      overflow: hidden;
+    }
+
+    .room-photo img { transition: transform .5s; }
+
+    .room:hover img { transform: scale(1.035); }
+
+    .room-tag {
+      position: absolute;
+      top: 18px;
+      left: 18px;
+      padding: 11px 14px;
+      background: var(--paper);
+      font-size: 8px;
+      letter-spacing: 1px;
+    }
+
+    .room h3 {
+      font-size: 24px;
+      margin-top: 23px;
+    }
+
+    .room p {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.7;
+      margin: 10px 0 20px;
+    }
+
+    .room .text-link { width: 100%; }
+
+    .dining {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      background: var(--ink);
+      color: var(--paper);
+    }
+
+    .dining-copy { padding: 65px 12%; }
+
+    .dining h2 { margin: 25px 0; }
+
+    .dining em { color: var(--sage); }
+
+    .dining-copy > p:not(.eyebrow) {
+      font-size: 13px;
+      line-height: 1.9;
+    }
+
+    .meal-list {
+      display: flex;
+      gap: 25px;
+      padding: 23px 0;
+      margin: 5px 0 23px;
+      border-bottom: 1px solid #496252;
+      font-size: 12px;
+    }
+
+    .dining-copy .note {
+      color: #b3c6b7;
+      font-size: 11px !important;
+      margin-bottom: 26px;
+    }
+
+    .dining-photo {
+      position: relative;
+      min-height: 500px;
+    }
+
+    .dining-photo img {
+      position: absolute;
+      inset: 0;
+      filter: brightness(.8);
+    }
+
+    .business {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8%;
+    }
+
+    .business h2 { margin: 25px 0; }
+
+    .business-intro {
+      max-width: 350px;
+      font-size: 13px;
+      line-height: 1.9;
+      color: var(--muted);
+      margin-bottom: 28px;
+    }
+
+    .business-list article {
+      display: flex;
+      gap: 22px;
+      padding: 25px 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .business-list article:first-child { padding-top: 0; }
+
+    .business-list article > span {
+      font-size: 10px;
+      color: var(--muted);
+      padding-top: 5px;
+    }
+
+    .business-list h3 {
+      font-size: 19px;
+      margin-bottom: 12px;
+    }
+
+    .business-list p {
+      font-size: 12px;
+      line-height: 1.9;
+      color: var(--muted);
+    }
+
+    .calculator-section { background: #e9eee5; }
+
+    .calculator {
+      display: grid;
+      grid-template-columns: 1.2fr .8fr;
+      background: var(--paper);
+    }
+
+    .trip-form { padding: 38px; }
+
+    .trip-form h3 {
+      font-size: 21px;
+      margin-bottom: 30px;
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 25px 22px;
+    }
+
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: 11px;
+      color: #546357;
+    }
+
+    input, select, textarea {
+      width: 100%;
+      min-width: 0;
+      padding: 11px 0;
+      border: 0;
+      border-bottom: 1px solid #bdc6b8;
+      border-radius: 0;
+      background: transparent;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    textarea { resize: vertical; }
+
+    .checkbox {
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+      margin: 28px 0;
+    }
+
+    .checkbox input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--green);
+    }
+
+    .checkbox small {
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    .summary {
+      padding: 38px;
+      background: var(--green);
+      color: var(--paper);
+    }
+
+    .summary .eyebrow { color: #b0c7b4; }
+
+    .summary h3 {
+      font-size: 32px;
+      line-height: 1.12;
+      margin: 25px 0;
+    }
+
+    dl { margin: 0; }
+
+    dl > div {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 12px 0;
+      border-bottom: 1px solid #527466;
+      font-size: 12px;
+    }
+
+    dd { margin: 0; text-align: right; }
+
+    [hidden] { display: none !important; }
+
+    .total {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      padding: 25px 0;
+    }
+
+    .total span {
+      font-size: 11px;
+      color: #bdcebf;
+    }
+
+    .total strong {
+      font-size: 38px;
+      font-weight: 400;
+      letter-spacing: -1px;
+    }
+
+    .summary .button { width: 100%; }
+
+    .estimate-note {
+      margin-top: 20px;
+      color: #bdd0c0;
+      font-size: 10px;
+      line-height: 1.7;
+    }
+
+    .error {
+      color: #a33329;
+      font-size: 12px;
+      line-height: 1.6;
+      margin-top: 15px;
+    }
+
+    .status {
+      margin-top: 15px;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .faq {
+      max-width: 1100px;
+      margin: auto;
+    }
+
+    .faq h2 { margin: 24px 0 35px; }
+
+    details { border-bottom: 1px solid var(--line); }
+
+    summary {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 20px;
+      padding: 24px 0;
+      font-size: 15px;
+      cursor: pointer;
+      list-style: none;
+    }
+
+    summary::-webkit-details-marker { display: none; }
+
+    summary::after {
+      content: "+";
+      font-size: 26px;
+    }
+
+    details[open] summary::after { content: "−"; }
+
+    details p {
+      padding: 0 30px 24px 0;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.9;
+    }
+
+    .closing {
+      padding: 70px 6% 80px;
+      text-align: center;
+      background: var(--deep);
+      color: var(--paper);
+    }
+
+    .closing h2 {
+      margin: 25px 0 32px;
+      font-size: 65px;
+    }
+
+    .closing em { color: var(--sage); }
+
+    footer {
+      display: grid;
+      grid-template-columns: 1fr 1fr .7fr 1.3fr;
+      gap: 30px;
+      padding: 50px 6.5%;
+    }
+
+    footer > p, .footer-links {
+      font-size: 12px;
+      line-height: 1.8;
+    }
+
+    .footer-links {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    footer .footer-note {
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    dialog {
+      width: calc(100% - 30px);
+      max-width: 560px;
+      max-height: 90vh;
+      overflow: auto;
+      padding: 45px;
+      border: 0;
+      background: var(--paper);
+      color: var(--ink);
+    }
+
+    dialog::backdrop {
+      background: #051f20b8;
+      backdrop-filter: blur(4px);
+    }
+
+    .dialog-close {
+      position: absolute;
+      top: 10px;
+      right: 15px;
+      border: 0;
+      background: none;
+      color: var(--ink);
+      font-size: 30px;
+    }
+
+    dialog h2 { margin: 20px 0 28px; }
+
+    dialog .full-field { margin: 25px 0; }
+
+    dialog .button { width: 100%; }
+
+    .dialog-note {
+      margin-top: 18px;
+      font-size: 11px;
+      color: var(--muted);
+      line-height: 1.7;
+    }
+
+    @media (max-width: 1050px) {
+      nav { gap: 16px; }
+      .hero-copy { padding-top: 45px; }
+      h1 { font-size: 60px; }
+      .hero-actions { gap: 18px; }
+      .trip-form, .summary { padding: 28px; }
+      .story-copy, .dining-copy { padding: 50px 10%; }
+    }
+
+    @media (max-width: 760px) {
+      .announcement {
+        font-size: 7px;
+        letter-spacing: 1px;
+      }
+
+      .announcement span { font-size: 8px; }
+
+      header {
+        min-height: 82px;
+        padding: 18px 6%;
+        gap: 15px;
+      }
+
+      .brand {
+        font-size: 32px;
+        letter-spacing: 5px;
+      }
+
+      .brand small {
+        font-size: 6px;
+        letter-spacing: 1.3px;
+      }
+
+      header > .button {
+        margin-left: auto;
+        padding: 11px;
+        font-size: 9px;
+        gap: 10px;
+        min-height: 38px;
+      }
+
+      .menu-button { display: block; }
+
+      nav {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        padding: 25px 6%;
+        background: var(--paper);
+        border-bottom: 1px solid var(--line);
+        z-index: 10;
+      }
+
+      nav.open {
+        display: flex;
+        flex-direction: column;
+        gap: 23px;
+      }
+
+      .hero { grid-template-columns: 1fr; }
+
+      .hero-copy { padding: 38px 6% 32px; }
+
+      h1 {
+        font-size: 56px;
+        letter-spacing: -2.5px;
+        margin: 26px 0 22px;
+      }
+
+      .hero-intro { font-size: 13px; }
+
+      .hero-actions { margin: 25px 0 30px; }
+
+      .hero-caption { font-size: 7px; }
+
+      .hero-photo { min-height: 380px; }
+
+      .benefits {
+        grid-template-columns: 1fr;
+        padding: 12px 6%;
+      }
+
+      .benefits > div {
+        padding: 17px 0;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .section { padding: 55px 6%; }
+
+      .side-note { display: none; }
+
+      h2 {
+        font-size: 35px;
+        letter-spacing: -1.2px;
+      }
+
+      .section-heading {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 24px;
+        margin-bottom: 30px;
+      }
+
+      .section-heading > p { max-width: none; }
+
+      .solutions { grid-template-columns: 1fr; }
+
+      .solutions article {
+        padding: 26px 0;
+        margin: 0;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .solutions article:last-child { padding: 26px 0; }
+
+      .solutions .index { right: 0; }
+
+      .solutions .icon { margin-bottom: 18px; }
+
+      .story, .dining, .business, .calculator {
+        grid-template-columns: 1fr;
+      }
+
+      .story-photo { min-height: 340px; }
+
+      .story-copy, .dining-copy { padding: 42px 6%; }
+
+      .room-grid {
+        grid-template-columns: 1fr;
+        gap: 36px;
+      }
+
+      .room-photo { height: 290px; }
+
+      .dining-photo { min-height: 330px; }
+
+      .business { gap: 35px; }
+
+      .business-intro { max-width: none; }
+
+      .trip-form, .summary { padding: 25px; }
+
+      .fields { gap: 24px 17px; }
+
+      .total strong { font-size: 35px; }
+
+      .closing { padding: 55px 6%; }
+
+      .closing h2 { font-size: 50px; }
+
+      footer {
+        grid-template-columns: 1fr 1fr;
+        padding: 38px 6%;
+      }
+
+      dialog { padding: 35px 25px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      * { transition: none !important; }
+    }
+  </style>
+</head>
+
+<body>
+  <svg class="symbols" aria-hidden="true">
+    <defs>
+      <symbol id="people-icon" viewBox="0 0 32 32">
+        <circle cx="16" cy="9" r="5"/>
+        <circle cx="5" cy="12" r="3.5"/>
+        <circle cx="27" cy="12" r="3.5"/>
+        <path d="M7 29v-5a9 9 0 0 1 18 0v5zM0 27v-6a6 6 0 0 1 7-5l3 2a12 12 0 0 0-5 9zm32 0h-5a12 12 0 0 0-5-9l3-2a6 6 0 0 1 7 5z"/>
+      </symbol>
+
+      <symbol id="document-icon" viewBox="0 0 32 32">
+        <path d="M7 2h14l6 6v22H7zm3 3v22h14V10h-6V5zm3 9v2h8v-2zm0 5v2h8v-2z"/>
+      </symbol>
+
+      <symbol id="clock-icon" viewBox="0 0 32 32">
+        <path fill-rule="evenodd"
+              d="M16 2a14 14 0 1 0 0 28 14 14 0 0 0 0-28zm0 3a11 11 0 1 1 0 22 11 11 0 0 1 0-22z"/>
+        <path d="M14.5 8h3v8l5 3-1.5 2.5-6.5-4z"/>
+      </symbol>
+
+      <symbol id="briefcase-icon" viewBox="0 0 32 32">
+        <path d="M11 3h10v5h8v20H3V8h8zm3 3v2h4V6zM6 11v6h8v-2h4v2h8v-6zm8 9H6v5h20v-5h-8v2h-4z"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <div class="announcement">
+    ПРОЖИВАНИЕ · ВСТРЕЧИ · РЕСТОРАН
+    <span>Ваше время — для главного</span>
+  </div>
+
+  <header>
+    <a class="brand" href="#" aria-label="WGB — на главную">
+      WGB
+      <small>HOTEL & RESTAURANT</small>
+    </a>
+
+    <nav id="navigation" aria-label="Основная навигация">
+      <a href="#groups">Для групп</a>
+      <a href="#rooms">Номера</a>
+      <a href="#dining">Ресторан</a>
+      <a href="#business">Командировки</a>
+    </nav>
+
+    <a class="button small" href="#estimate">
+      Рассчитать проживание <span aria-hidden="true">↗</span>
+    </a>
+
+    <button class="menu-button"
+            id="menu-button"
+            type="button"
+            aria-controls="navigation"
+            aria-expanded="false"
+            aria-label="Открыть меню">☰</button>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">
+          ГОРОДСКОЙ ОТЕЛЬ
+          <span class="stars" aria-label="Концепция отеля четыре звезды">
+            ★ ★ ★ ★
+          </span>
+        </p>
+
+        <h1>Вместе.<br>По делу.<br><em>С комфортом.</em></h1>
+
+        <p class="hero-intro">
+          Когда всё организовано, остаётся время
+          для того, ради чего вы приехали.
+        </p>
+
+        <div class="hero-actions">
+          <a class="button" href="#estimate">
+            Разместить группу <span aria-hidden="true">↗</span>
+          </a>
+
+          <button class="text-link open-booking" type="button">
+            Еду в командировку <span aria-hidden="true">↗</span>
+          </button>
+        </div>
+
+        <p class="hero-caption">
+          ОДИН ОТЕЛЬ. ВСЯ КОМАНДА. НИКАКОЙ СУЕТЫ.
+        </p>
+      </div>
+
+      <div class="hero-photo">
+        <img
+          src="https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1400&q=85"
+          alt="Иллюстрация гостиничного пространства"
+          fetchpriority="high">
+
+        <div class="photo-caption">
+          <span>МЕСТО ДЛЯ ВАШЕГО РИТМА</span>
+          <span>WGB</span>
+        </div>
+
+        <a class="round-arrow" href="#groups"
+           aria-label="Перейти к групповому размещению">↓</a>
+      </div>
+    </section>
+
+    <div class="benefits">
+      <div>
+        <svg class="icon" aria-hidden="true"><use href="#people-icon"/></svg>
+        <span>Вся группа в одном месте</span>
+      </div>
+      <div>
+        <svg class="icon" aria-hidden="true"><use href="#document-icon"/></svg>
+        <span>Понятный бюджет поездки</span>
+      </div>
+      <div>
+        <svg class="icon" aria-hidden="true"><use href="#clock-icon"/></svg>
+        <span>Меньше организационных забот</span>
+      </div>
+    </div>
+
+    <section class="section" id="groups">
+      <div class="section-top">
+        <p class="eyebrow">01 / ГРУППОВОЕ РАЗМЕЩЕНИЕ</p>
+        <span class="side-note">
+          Для команд, делегаций и участников событий
+        </span>
+      </div>
+
+      <div class="section-heading">
+        <h2>Вы собираете команду.<br><em>Мы собираем всё остальное.</em></h2>
+        <p>
+          Номера, питание и детали заезда — в одном плане.
+          Чтобы не приходилось координировать десятки
+          отдельных бронирований.
+        </p>
+      </div>
+
+      <div class="solutions">
+        <article>
+          <span class="index">01</span>
+          <svg class="icon" aria-hidden="true"><use href="#people-icon"/></svg>
+          <h3>Все рядом</h3>
+          <p>
+            Общий список гостей и удобная схема расселения.
+            Одноместные и двухместные варианты под задачи вашей группы.
+          </p>
+        </article>
+
+        <article>
+          <span class="index">02</span>
+          <svg class="icon" aria-hidden="true"><use href="#document-icon"/></svg>
+          <h3>Бюджет до заезда</h3>
+          <p>
+            Проживание и выбранное питание в одном расчёте.
+            Условия оплаты, изменений и отмены согласуются заранее.
+          </p>
+        </article>
+
+        <article>
+          <span class="index">03</span>
+          <svg class="icon" aria-hidden="true"><use href="#briefcase-icon"/></svg>
+          <h3>Один план поездки</h3>
+          <p>
+            Завтрак перед встречей, общий ужин после события
+            и трансфер по запросу. Важные детали — в одной заявке.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="story">
+      <div class="story-photo">
+        <img
+          src="https://images.unsplash.com/photo-1524758631624-e2822e304c36?auto=format&fit=crop&w=1200&q=85"
+          alt="Иллюстрация пространства для работы и встреч"
+          loading="lazy">
+      </div>
+
+      <div class="story-copy">
+        <p class="eyebrow">БОЛЬШЕ, ЧЕМ РАЗМЕЩЕНИЕ</p>
+        <h2>Хорошие идеи<br>начинаются<br><em>с хорошей встречи.</em></h2>
+        <p>
+          Обсудить планы за кофе. Подготовиться к выступлению.
+          Просто выдохнуть после дороги. Пространство,
+          где можно быть и командой, и собой.
+        </p>
+        <a class="text-link" href="#estimate">
+          Спланировать поездку <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="section" id="rooms">
+      <div class="section-top">
+        <p class="eyebrow">02 / НОМЕРА</p>
+        <span class="side-note">
+          Отдохнуть. Сосредоточиться. Начать новый день.
+        </span>
+      </div>
+
+      <div class="section-heading">
+        <h2>Личное пространство.<br><em>Общий комфорт.</em></h2>
+        <a class="text-link" href="#estimate">
+          Подобрать размещение <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+
+      <div class="room-grid">
+        <article class="room">
+          <div class="room-photo">
+            <img
+              src="https://images.unsplash.com/photo-1611892440504-42a792e24d32?auto=format&fit=crop&w=1100&q=85"
+              alt="Иллюстрация номера с большой кроватью"
+              loading="lazy">
+            <span class="room-tag">ДЛЯ ДЕЛОВОЙ ПОЕЗДКИ</span>
+          </div>
+          <h3>Комфорт</h3>
+          <p>Один гость · большая кровать · рабочая зона</p>
+          <button class="text-link open-booking" type="button">
+            Выбрать для себя <span aria-hidden="true">↗</span>
+          </button>
+        </article>
+
+        <article class="room">
+          <div class="room-photo">
+            <img
+              src="https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=1100&q=85"
+              alt="Иллюстрация гостиничного номера"
+              loading="lazy">
+            <span class="room-tag">ДЛЯ КОМАНДЫ</span>
+          </div>
+          <h3>Команда вместе</h3>
+          <p>Индивидуальная схема расселения · общие пространства</p>
+          <a class="text-link" href="#estimate">
+            Подобрать номера для группы <span aria-hidden="true">↗</span>
+          </a>
+        </article>
+      </div>
+    </section>
+
+    <section class="dining" id="dining">
+      <div class="dining-copy">
+        <p class="eyebrow">03 / РЕСТОРАН</p>
+        <h2>За одним столом.<br><em>В удобное время.</em></h2>
+        <p>
+          Поездка проще, когда вопрос питания уже решён.
+          Выберите завтрак, полупансион или полный пансион
+          для всей команды.
+        </p>
+
+        <div class="meal-list">
+          <span>Завтрак</span>
+          <span>Обед</span>
+          <span>Ужин</span>
+        </div>
+
+        <p class="note">
+          Особенности питания и расписание группы можно указать
+          в плане поездки. Меню и стоимость согласуются отдельно.
+        </p>
+
+        <a class="button light" href="#estimate">
+          Добавить питание к поездке <span aria-hidden="true">↗</span>
+        </a>
+      </div>
+
+      <div class="dining-photo">
+        <img
+          src="https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=1200&q=85"
+          alt="Иллюстрация ресторанной сервировки"
+          loading="lazy">
+      </div>
+    </section>
+
+    <section class="section business" id="business">
+      <div>
+        <p class="eyebrow">04 / ДЕЛОВЫЕ ПОЕЗДКИ</p>
+        <h2>Ваша задача — дела.<br><em>Наша — ваш комфорт.</em></h2>
+        <p class="business-intro">
+          Для тех, кто приезжает работать
+          и хочет быстро решить вопросы проживания.
+        </p>
+        <button class="text-link open-booking" type="button">
+          Подобрать номер для командировки
+          <span aria-hidden="true">↗</span>
+        </button>
+      </div>
+
+      <div class="business-list">
+        <article>
+          <span>01</span>
+          <div>
+            <h3>Отдых и работа в одном ритме</h3>
+            <p>
+              Укажите пожелания к рабочему месту,
+              тишине и времени заезда.
+            </p>
+          </div>
+        </article>
+        <article>
+          <span>02</span>
+          <div>
+            <h3>Условия без мелкого шрифта</h3>
+            <p>
+              До подтверждения бронирования необходимо согласовать
+              состав тарифа, доплаты и правила отмены.
+            </p>
+          </div>
+        </article>
+        <article>
+          <span>03</span>
+          <div>
+            <h3>Всё для бухгалтерии</h3>
+            <p>
+              Отметьте оплату от компании и нужные документы.
+              Их перечень следует подтвердить у менеджера.
+            </p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section calculator-section" id="estimate">
+      <div class="section-top">
+        <p class="eyebrow">05 / ВАША ПОЕЗДКА</p>
+        <span class="side-note">От идеи — к понятному плану</span>
+      </div>
+
+      <div class="section-heading">
+        <h2>Начнём<br><em>с вашей команды.</em></h2>
+        <p>
+          Соберите параметры поездки и посмотрите,
+          из чего складывается бюджет.
+        </p>
+      </div>
+
+      <div class="calculator">
+        <form class="trip-form" id="group-form">
+          <h3>Параметры проживания</h3>
+
+          <div class="fields">
+            <label for="arrival">
+              Заезд
+              <input id="arrival" type="date" required>
+            </label>
+
+            <label for="departure">
+              Выезд
+              <input id="departure" type="date" required>
+            </label>
+
+            <label for="guests">
+              Количество гостей
+              <input id="guests" type="number"
+                     min="2" max="300" step="1" value="20" required>
+            </label>
+
+            <label for="occupancy">
+              Размещение
+              <select id="occupancy">
+                <option value="2">По 2 гостя в номере</option>
+                <option value="1">По 1 гостю в номере</option>
+              </select>
+            </label>
+
+            <label for="meal">
+              Питание
+              <select id="meal">
+                <option value="none">Без питания</option>
+                <option value="breakfast" selected>Завтрак</option>
+                <option value="half">Завтрак и ужин</option>
+                <option value="full">Полный пансион</option>
+              </select>
+            </label>
+
+            <label for="payment">
+              Оплата
+              <select id="payment">
+                <option>От компании</option>
+                <option>Личная оплата</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="checkbox" for="transfer">
+            <input id="transfer" type="checkbox">
+            Нужен трансфер для группы
+            <small>По запросу</small>
+          </label>
+
+          <label for="wishes">
+            Пожелания к поездке
+            <textarea
+              id="wishes"
+              rows="3"
+              maxlength="3000"
+              placeholder="Время прибытия, состав группы, особенности питания…"></textarea>
+          </label>
+
+          <p class="error" id="form-error" role="alert"></p>
+        </form>
+
+        <aside class="summary" aria-label="Предварительный расчёт">
+          <p class="eyebrow">ПРЕДВАРИТЕЛЬНЫЙ ОРИЕНТИР</p>
+          <h3>Ваша группа.<br>Ваш план.</h3>
+
+          <dl>
+            <div><dt>Размещение</dt><dd id="rooms-count">—</dd></div>
+            <div><dt>Продолжительность</dt><dd id="nights-count">—</dd></div>
+            <div><dt>Проживание</dt><dd id="room-total">—</dd></div>
+            <div><dt>Питание</dt><dd id="meal-total">—</dd></div>
+            <div id="transfer-row" hidden>
+              <dt>Трансфер</dt><dd>По запросу</dd>
+            </div>
+          </dl>
+
+          <div class="total" aria-live="polite">
+            <span>Ориентировочно</span>
+            <strong id="total">—</strong>
+            <span id="per-person"></span>
+          </div>
+
+          <button class="button light" id="download-plan" type="button">
+            Скачать план в Excel <span aria-hidden="true">↗</span>
+          </button>
+
+          <p class="estimate-note" id="tariff-note"></p>
+          <p class="status" id="download-status" role="status"></p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section faq">
+      <p class="eyebrow">ПОЛЕЗНО ЗНАТЬ</p>
+      <h2>Детали имеют <em>значение.</em></h2>
+
+      <details>
+        <summary>Можно ли изменить состав группы?</summary>
+        <p>
+          В плане можно указать предварительное число гостей.
+          Сроки изменения списка и условия перерасчёта необходимо
+          закрепить в предложении отеля до подтверждения бронирования.
+        </p>
+      </details>
+
+      <details>
+        <summary>Как узнать итоговую стоимость?</summary>
+        <p>
+          Калькулятор показывает ориентир на демонстрационных тарифах.
+          Итоговая стоимость зависит от дат, наличия номеров,
+          питания и дополнительных услуг и требует подтверждения отеля.
+        </p>
+      </details>
+
+      <details>
+        <summary>Какие документы нужны для командировки?</summary>
+        <p>
+          При обращении в отель укажите реквизиты компании
+          и требования вашей бухгалтерии. Перечень документов
+          и порядок безналичной оплаты следует согласовать заранее.
+        </p>
+      </details>
+
+      <details>
+        <summary>Что происходит после скачивания Excel?</summary>
+        <p>
+          Файл сохраняется на вашем устройстве. Он содержит параметры
+          поездки и предварительный расчёт с формулами. Скачивание
+          не отправляет заявку и не подтверждает бронирование.
+        </p>
+      </details>
+    </section>
+
+    <section class="closing">
+      <p class="eyebrow">ХОРОШО, КОГДА ВСЁ НА СВОЁМ МЕСТЕ</p>
+      <h2>До встречи.<br><em>Всей командой.</em></h2>
+      <a class="button light" href="#estimate">
+        Спланировать проживание <span aria-hidden="true">↗</span>
+      </a>
+    </section>
+  </main>
+
+  <footer>
+    <a class="brand" href="#" aria-label="WGB — на главную">
+      WGB<small>HOTEL & RESTAURANT</small>
+    </a>
+    <p>Место для людей.<br>Пространство для дела.</p>
+    <div class="footer-links">
+      <a href="#groups">Для групп</a>
+      <a href="#rooms">Номера</a>
+      <a href="#dining">Ресторан</a>
+    </div>
+    <p class="footer-note">
+      Концепция сайта отеля · 2026<br>
+      Фотографии иллюстративные.<br>
+      Услуги и тарифы демонстрационные.<br>
+      Онлайн-бронирование пока не подключено.
+    </p>
+  </footer>
+
+  <dialog id="booking-dialog" aria-labelledby="booking-title">
+    <button class="dialog-close" id="close-booking"
+            type="button" aria-label="Закрыть форму">×</button>
+
+    <p class="eyebrow">ИНДИВИДУАЛЬНАЯ ПОЕЗДКА</p>
+    <h2 id="booking-title">Ваша деловая<br><em>поездка.</em></h2>
+
+    <form id="booking-form">
+      <div class="fields">
+        <label for="booking-arrival">
+          Заезд
+          <input id="booking-arrival" type="date" required>
+        </label>
+
+        <label for="booking-departure">
+          Выезд
+          <input id="booking-departure" type="date" required>
+        </label>
+
+        <label for="booking-guests">
+          Гостей
+          <select id="booking-guests">
+            <option value="1">1</option>
+            <option value="2">2</option>
+          </select>
+        </label>
+
+        <label for="booking-payment">
+          Оплата
+          <select id="booking-payment">
+            <option>От компании</option>
+            <option>Личная оплата</option>
+          </select>
+        </label>
+      </div>
+
+      <label class="full-field" for="booking-wishes">
+        Пожелания
+        <textarea id="booking-wishes" rows="3" maxlength="3000"
+                  placeholder="Ранний заезд, питание, документы…"></textarea>
+      </label>
+
+      <p class="error" id="booking-error" role="alert"></p>
+
+      <button class="button" type="submit">
+        Скачать расчёт в Excel <span aria-hidden="true">↗</span>
+      </button>
+
+      <p class="dialog-note">
+        Расчёт по демонстрационным тарифам. Файл сохраняется
+        на вашем устройстве. Запрос в отель не отправляется.
+      </p>
+      <p class="status" id="booking-status" role="status"></p>
+    </form>
+  </dialog>
+
+  <script>
+    'use strict';
+
+    /*
+     * Настройки демонстрационных тарифов.
+     * Стоимость номера — за ночь.
+     * Стоимость питания — за гостя в день расчёта.
+     */
+    const CONFIG = {
+      roomRate: 30000,
+      minGroup: 2,
+      maxGroup: 300,
+      meals: {
+        none:      { label: 'Без питания',     rate: 0 },
+        breakfast: { label: 'Завтрак',         rate: 4000 },
+        half:      { label: 'Завтрак и ужин',  rate: 10000 },
+        full:      { label: 'Полный пансион',  rate: 15000 }
+      }
+    };
+
+    const $ = selector => document.querySelector(selector);
+
+    const money = value =>
+      new Intl.NumberFormat('ru-RU', {
+        maximumFractionDigits: 0
+      }).format(value) + ' ₸';
+
+    function localISO(date) {
+      return [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, '0'),
+        String(date.getDate()).padStart(2, '0')
+      ].join('-');
+    }
+
+    function dayNumber(value) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return NaN;
+      const ms = Date.parse(value + 'T00:00:00Z');
+      return Number.isFinite(ms) ? ms / 86400000 : NaN;
+    }
+
+    function calculateTrip(input, minGuests, maxGuests) {
+      const startDay = dayNumber(input.start);
+      const endDay = dayNumber(input.end);
+      const todayDay = dayNumber(localISO(new Date()));
+
+      if (!Number.isFinite(startDay) ||
+          !Number.isFinite(endDay) ||
+          startDay < todayDay ||
+          endDay <= startDay) {
+        throw new Error(
+          'Укажите даты поездки. Выезд должен быть позже заезда.'
+        );
+      }
+
+      const guests = Number(input.guests);
+      const occupancy = Number(input.occupancy);
+      const meal = CONFIG.meals[input.mealKey];
+
+      if (!Number.isInteger(guests) ||
+          guests < minGuests ||
+          guests > maxGuests) {
+        throw new Error(
+          `Укажите количество гостей от ${minGuests} до ${maxGuests}.`
+        );
+      }
+
+      if (![1, 2].includes(occupancy) || !meal) {
+        throw new Error('Проверьте вариант размещения и питание.');
+      }
+
+      const nights = endDay - startDay;
+      const rooms = Math.ceil(guests / occupancy);
+      const roomCost = rooms * nights * CONFIG.roomRate;
+      const mealCost = guests * nights * meal.rate;
+      const total = roomCost + mealCost;
+
+      return {
+        ...input,
+        guests,
+        occupancy,
+        nights,
+        rooms,
+        roomRate: CONFIG.roomRate,
+        meal: meal.label,
+        mealRate: meal.rate,
+        roomCost,
+        mealCost,
+        total,
+        perPerson: Math.round(total / guests)
+      };
+    }
+
+    function readGroup() {
+      return calculateTrip({
+        start: $('#arrival').value,
+        end: $('#departure').value,
+        guests: $('#guests').value,
+        occupancy: $('#occupancy').value,
+        mealKey: $('#meal').value,
+        payment: $('#payment').value,
+        transfer: $('#transfer').checked
+          ? 'Нужен, стоимость отдельно'
+          : 'Не выбран',
+        wishes: $('#wishes').value.trim() || 'Не указаны'
+      }, CONFIG.minGroup, CONFIG.maxGroup);
+    }
+
+    function updateGroup() {
+      $('#transfer-row').hidden = !$('#transfer').checked;
+
+      try {
+        const trip = readGroup();
+
+        $('#form-error').textContent = '';
+        $('#rooms-count').textContent =
+          `${trip.rooms} ном. / ${trip.guests} гостей`;
+        $('#nights-count').textContent = `${trip.nights} ноч.`;
+        $('#room-total').textContent = money(trip.roomCost);
+        $('#meal-total').textContent = money(trip.mealCost);
+        $('#total').textContent = money(trip.total);
+        $('#per-person').textContent =
+          `${money(trip.perPerson)} за гостя за всю поездку`;
+
+        return trip;
+      } catch (error) {
+        $('#form-error').textContent = error.message;
+
+        [
+          '#rooms-count', '#nights-count', '#room-total',
+          '#meal-total', '#total'
+        ].forEach(selector => {
+          $(selector).textContent = '—';
+        });
+
+        $('#per-person').textContent = '';
+        return null;
+      }
+    }
+
+    function saveBlob(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    }
+
+    /*
+     * Генерация XLSX.
+     * XLSX — ZIP-контейнер с XML-файлами стандарта OOXML.
+     * Здесь используется ZIP без сжатия, без сторонних библиотек.
+     */
+    const textEncoder = new TextEncoder();
+
+    const crcTable = Uint32Array.from(
+      { length: 256 },
+      (_, number) => {
+        for (let i = 0; i < 8; i++) {
+          number = number & 1
+            ? 0xedb88320 ^ (number >>> 1)
+            : number >>> 1;
+        }
+        return number >>> 0;
+      }
+    );
+
+    function crc32(bytes) {
+      let crc = 0xffffffff;
+
+      for (const byte of bytes) {
+        crc = crcTable[(crc ^ byte) & 255] ^ (crc >>> 8);
+      }
+
+      return (crc ^ 0xffffffff) >>> 0;
+    }
+
+    function createZip(files) {
+      const localParts = [];
+      const centralParts = [];
+
+      let localOffset = 0;
+      let centralSize = 0;
+
+      const now = new Date();
+      const zipTime =
+        (now.getHours() << 11) |
+        (now.getMinutes() << 5) |
+        (now.getSeconds() >> 1);
+
+      const zipDate =
+        ((Math.max(1980, now.getFullYear()) - 1980) << 9) |
+        ((now.getMonth() + 1) << 5) |
+        now.getDate();
+
+      for (const [name, content] of Object.entries(files)) {
+        const filename = textEncoder.encode(name);
+        const data = textEncoder.encode(content);
+        const checksum = crc32(data);
+
+        const header = new Uint8Array(30 + filename.length);
+        const view = new DataView(header.buffer);
+
+        view.setUint32(0, 0x04034b50, true);
+        view.setUint16(4, 20, true);
+        view.setUint16(6, 0x0800, true);
+        view.setUint16(8, 0, true);
+        view.setUint16(10, zipTime, true);
+        view.setUint16(12, zipDate, true);
+        view.setUint32(14, checksum, true);
+        view.setUint32(18, data.length, true);
+        view.setUint32(22, data.length, true);
+        view.setUint16(26, filename.length, true);
+        header.set(filename, 30);
+
+        localParts.push(header, data);
+
+        const central = new Uint8Array(46 + filename.length);
+        const cv = new DataView(central.buffer);
+
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint16(8, 0x0800, true);
+        cv.setUint16(10, 0, true);
+        cv.setUint16(12, zipTime, true);
+        cv.setUint16(14, zipDate, true);
+        cv.setUint32(16, checksum, true);
+        cv.setUint32(20, data.length, true);
+        cv.setUint32(24, data.length, true);
+        cv.setUint16(28, filename.length, true);
+        cv.setUint32(42, localOffset, true);
+        central.set(filename, 46);
+
+        centralParts.push(central);
+        centralSize += central.length;
+        localOffset += header.length + data.length;
+      }
+
+      const end = new Uint8Array(22);
+      const ev = new DataView(end.buffer);
+
+      ev.setUint32(0, 0x06054b50, true);
+      ev.setUint16(8, centralParts.length, true);
+      ev.setUint16(10, centralParts.length, true);
+      ev.setUint32(12, centralSize, true);
+      ev.setUint32(16, localOffset, true);
+
+      return new Blob(
+        [...localParts, ...centralParts, end],
+        {
+          type:
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        }
+      );
+    }
+
+    function xmlEscape(value) {
+      return String(value)
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+    }
+
+    function textCell(address, value, style = 0) {
+      return (
+        `<c r="${address}" s="${style}" t="inlineStr">` +
+        `<is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`
+      );
+    }
+
+    function numberCell(address, value, style = 0) {
+      if (!Number.isFinite(value)) {
+        throw new Error('Некорректное число в расчёте.');
+      }
+
+      return `<c r="${address}" s="${style}"><v>${value}</v></c>`;
+    }
+
+    function formulaCell(address, formula, value, style = 0) {
+      return (
+        `<c r="${address}" s="${style}">` +
+        `<f>${xmlEscape(formula)}</f><v>${value}</v></c>`
+      );
+    }
+
+    function createTripExcel(trip, individual = false) {
+      const serial = value => dayNumber(value) + 25569;
+      const rows = [];
+
+      const addRow = (number, cells, height = 25) => {
+        rows.push(
+          `<row r="${number}" ht="${height}" customHeight="1">` +
+          cells.join('') + '</row>'
+        );
+      };
+
+      const section = (number, title) => {
+        addRow(number, [
+          textCell(`A${number}`, title, 2),
+          textCell(`B${number}`, '', 2)
+        ], 28);
+      };
+
+      const textRow = (number, title, value, style = 0, height = 25) => {
+        addRow(number, [
+          textCell(`A${number}`, title),
+          textCell(`B${number}`, value, style)
+        ], height);
+      };
+
+      addRow(2, [
+        textCell(
+          'A2',
+          individual ? 'WGB · Деловая поездка' : 'WGB · План поездки',
+          1
+        )
+      ], 32);
+
+      addRow(4, [
+        textCell('A4', 'Итого, ₸', 3),
+        formulaCell('B4', 'B24', trip.total, 7)
+      ], 34);
+
+      section(6, 'ПАРАМЕТРЫ ПОЕЗДКИ');
+
+      addRow(7, [
+        textCell('A7', 'Заезд'),
+        numberCell('B7', serial(trip.start), 4)
+      ]);
+
+      addRow(8, [
+        textCell('A8', 'Выезд'),
+        numberCell('B8', serial(trip.end), 4)
+      ]);
+
+      addRow(9, [
+        textCell('A9', 'Количество ночей'),
+        formulaCell('B9', 'B8-B7', trip.nights)
+      ]);
+
+      addRow(10, [
+        textCell('A10', 'Количество гостей'),
+        numberCell('B10', trip.guests, 5)
+      ]);
+
+      addRow(11, [
+        textCell('A11', 'Гостей в номере'),
+        numberCell('B11', trip.occupancy, 5)
+      ]);
+
+      addRow(12, [
+        textCell('A12', 'Количество номеров'),
+        formulaCell('B12', 'ROUNDUP(B10/B11,0)', trip.rooms)
+      ]);
+
+      textRow(13, 'Питание', trip.meal);
+      textRow(14, 'Оплата', trip.payment);
+      textRow(15, 'Трансфер', trip.transfer);
+
+      const wishesHeight = Math.min(
+        400,
+        Math.max(60, 18 * Math.ceil(trip.wishes.length / 55))
+      );
+
+      textRow(16, 'Пожелания', trip.wishes, 8, wishesHeight);
+
+      section(18, 'ДЕМОНСТРАЦИОННЫЕ ТАРИФЫ');
+
+      addRow(19, [
+        textCell('A19', 'Номер за ночь, ₸'),
+        numberCell('B19', trip.roomRate, 9)
+      ]);
+
+      addRow(20, [
+        textCell('A20', 'Питание за гостя в день, ₸'),
+        numberCell('B20', trip.mealRate, 9)
+      ]);
+
+      addRow(22, [
+        textCell('A22', 'Проживание, ₸'),
+        formulaCell('B22', 'B12*B9*B19', trip.roomCost, 6)
+      ]);
+
+      addRow(23, [
+        textCell('A23', 'Питание, ₸'),
+        formulaCell('B23', 'B10*B9*B20', trip.mealCost, 6)
+      ]);
+
+      addRow(24, [
+        textCell('A24', 'Всего за поездку, ₸', 3),
+        formulaCell('B24', 'SUM(B22:B23)', trip.total, 7)
+      ], 34);
+
+      addRow(25, [
+        textCell('A25', 'За гостя за всю поездку, ₸'),
+        formulaCell('B25', 'ROUND(B24/B10,0)', trip.perPerson, 6)
+      ]);
+
+      textRow(
+        27,
+        'Условия расчёта',
+        'Расчёт по демонстрационным тарифам сайта WGB. ' +
+        'Трансфер и дополнительные услуги не включены. ' +
+        'Наличие и итоговая стоимость требуют подтверждения отеля. ' +
+        'Это план поездки, а не бронирование. Заявка не отправлена.',
+        8,
+        100
+      );
+
+      const declaration =
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+
+      const mainNs =
+        'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+
+      const relNs =
+        'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+
+      const packageRelNs =
+        'http://schemas.openxmlformats.org/package/2006/relationships';
+
+      const styles = declaration + `
+        <styleSheet xmlns="${mainNs}">
+          <numFmts count="2">
+            <numFmt numFmtId="164" formatCode="dd.mm.yyyy"/>
+            <numFmt numFmtId="165" formatCode="#,##0"/>
+          </numFmts>
+          <fonts count="4">
+            <font><sz val="11"/><color rgb="FF0B2B26"/><name val="Arial"/></font>
+            <font><b/><sz val="16"/><color rgb="FF0B2B26"/><name val="Arial"/></font>
+            <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Arial"/></font>
+            <font><b/><sz val="11"/><color rgb="FF0B2B26"/><name val="Arial"/></font>
+          </fonts>
+          <fills count="5">
+            <fill><patternFill patternType="none"/></fill>
+            <fill><patternFill patternType="gray125"/></fill>
+            <fill><patternFill patternType="solid"><fgColor rgb="FF235347"/><bgColor indexed="64"/></patternFill></fill>
+            <fill><patternFill patternType="solid"><fgColor rgb="FFDAF1DE"/><bgColor indexed="64"/></patternFill></fill>
+            <fill><patternFill patternType="solid"><fgColor rgb="FFFFF5D6"/><bgColor indexed="64"/></patternFill></fill>
+          </fills>
+          <borders count="1">
+            <border><left/><right/><top/><bottom/><diagonal/></border>
+          </borders>
+          <cellStyleXfs count="1">
+            <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+          </cellStyleXfs>
+          <cellXfs count="10">
+            <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf>
+            <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
+            <xf numFmtId="0" fontId="2" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center"/></xf>
+            <xf numFmtId="0" fontId="3" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center"/></xf>
+            <xf numFmtId="164" fontId="0" fillId="4" borderId="0" xfId="0" applyNumberFormat="1" applyFill="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
+            <xf numFmtId="0" fontId="0" fillId="4" borderId="0" xfId="0" applyFill="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
+            <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
+            <xf numFmtId="165" fontId="3" fillId="3" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
+            <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+            <xf numFmtId="165" fontId="0" fillId="4" borderId="0" xfId="0" applyNumberFormat="1" applyFill="1" applyAlignment="1"><alignment vertical="center" horizontal="right"/></xf>
+          </cellXfs>
+          <cellStyles count="1">
+            <cellStyle name="Normal" xfId="0" builtinId="0"/>
+          </cellStyles>
+          <dxfs count="0"/>
+          <tableStyles count="0"
+            defaultTableStyle="TableStyleMedium2"
+            defaultPivotStyle="PivotStyleLight16"/>
+        </styleSheet>`;
+
+      const worksheet = declaration + `
+        <worksheet xmlns="${mainNs}">
+          <dimension ref="A1:B27"/>
+          <sheetViews>
+            <sheetView showGridLines="0" workbookViewId="0"/>
+          </sheetViews>
+          <sheetFormatPr defaultRowHeight="25"/>
+          <cols>
+            <col min="1" max="1" width="43" customWidth="1"/>
+            <col min="2" max="2" width="65" customWidth="1"/>
+          </cols>
+          <sheetData>${rows.join('')}</sheetData>
+          <dataValidations count="2">
+            <dataValidation type="whole" operator="between"
+              allowBlank="0" showErrorMessage="1" sqref="B10">
+              <formula1>1</formula1><formula2>300</formula2>
+            </dataValidation>
+            <dataValidation type="whole" operator="between"
+              allowBlank="0" showErrorMessage="1" sqref="B11">
+              <formula1>1</formula1><formula2>2</formula2>
+            </dataValidation>
+          </dataValidations>
+          <pageMargins left="0.3" right="0.3" top="0.4"
+            bottom="0.4" header="0.2" footer="0.2"/>
+        </worksheet>`;
+
+      const files = {
+        '[Content_Types].xml': declaration + `
+          <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+            <Default Extension="rels"
+              ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+            <Default Extension="xml" ContentType="application/xml"/>
+            <Override PartName="/xl/workbook.xml"
+              ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+            <Override PartName="/xl/worksheets/sheet1.xml"
+              ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+            <Override PartName="/xl/styles.xml"
+              ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+          </Types>`,
+
+        '_rels/.rels': declaration + `
+          <Relationships xmlns="${packageRelNs}">
+            <Relationship Id="rId1"
+              Type="${relNs}/officeDocument"
+              Target="xl/workbook.xml"/>
+          </Relationships>`,
+
+        'xl/workbook.xml': declaration + `
+          <workbook xmlns="${mainNs}" xmlns:r="${relNs}">
+            <bookViews><workbookView/></bookViews>
+            <sheets>
+              <sheet name="План поездки" sheetId="1" r:id="rId1"/>
+            </sheets>
+            <calcPr calcId="191029" calcMode="auto"
+              fullCalcOnLoad="1" forceFullCalc="1"/>
+          </workbook>`,
+
+        'xl/_rels/workbook.xml.rels': declaration + `
+          <Relationships xmlns="${packageRelNs}">
+            <Relationship Id="rId1" Type="${relNs}/worksheet"
+              Target="worksheets/sheet1.xml"/>
+            <Relationship Id="rId2" Type="${relNs}/styles"
+              Target="styles.xml"/>
+          </Relationships>`,
+
+        'xl/styles.xml': styles,
+        'xl/worksheets/sheet1.xml': worksheet
+      };
+
+      return createZip(files);
+    }
+
+    /*
+     * Инициализация дат и событий интерфейса.
+     */
+    const initialDate = new Date();
+    const today = localISO(initialDate);
+
+    initialDate.setDate(initialDate.getDate() + 7);
+    $('#arrival').value = localISO(initialDate);
+
+    initialDate.setDate(initialDate.getDate() + 2);
+    $('#departure').value = localISO(initialDate);
+
+    [
+      '#arrival', '#departure',
+      '#booking-arrival', '#booking-departure'
+    ].forEach(selector => {
+      $(selector).min = today;
+    });
+
+    $('#tariff-note').textContent =
+      `Демонстрационный расчёт: ${money(CONFIG.roomRate)} ` +
+      'за номер в сутки. Питание — за гостя в день расчёта. ' +
+      'Трансфер и дополнительные услуги не включены. ' +
+      'Это не оферта и не подтверждение наличия.';
+
+    $('#group-form').addEventListener('submit', event => {
+      event.preventDefault();
+    });
+
+    $('#group-form').addEventListener('input', () => {
+      updateGroup();
+      $('#download-status').textContent = '';
+    });
+
+    $('#download-plan').addEventListener('click', () => {
+      const form = $('#group-form');
+
+      if (!form.reportValidity()) return;
+
+      const trip = updateGroup();
+      if (!trip) return;
+
+      try {
+        const blob = createTripExcel(trip);
+        saveBlob(blob, `WGB-plan-${trip.start}.xlsx`);
+
+        $('#download-status').textContent =
+          'Файл Excel сформирован. Проверьте загрузки браузера.';
+      } catch (error) {
+        console.error(error);
+        $('#download-status').textContent =
+          'Не удалось сформировать Excel. Попробуйте ещё раз.';
+      }
+    });
+
+    const menuButton = $('#menu-button');
+    const navigation = $('#navigation');
+
+    menuButton.addEventListener('click', () => {
+      const open = navigation.classList.toggle('open');
+      menuButton.setAttribute('aria-expanded', String(open));
+      menuButton.setAttribute(
+        'aria-label',
+        open ? 'Закрыть меню' : 'Открыть меню'
+      );
+    });
+
+    navigation.querySelectorAll('a').forEach(link => {
+      link.addEventListener('click', () => {
+        navigation.classList.remove('open');
+        menuButton.setAttribute('aria-expanded', 'false');
+        menuButton.setAttribute('aria-label', 'Открыть меню');
+      });
+    });
+
+    const bookingDialog = $('#booking-dialog');
+
+    document.querySelectorAll('.open-booking').forEach(button => {
+      button.addEventListener('click', () => {
+        $('#booking-arrival').value = $('#arrival').value;
+        $('#booking-departure').value = $('#departure').value;
+        $('#booking-error').textContent = '';
+        $('#booking-status').textContent = '';
+
+        bookingDialog.showModal();
+        document.body.classList.add('modal-open');
+      });
+    });
+
+    $('#close-booking').addEventListener('click', () => {
+      bookingDialog.close();
+    });
+
+    bookingDialog.addEventListener('close', () => {
+      document.body.classList.remove('modal-open');
+    });
+
+    bookingDialog.addEventListener('click', event => {
+      if (event.target !== bookingDialog) return;
+
+      const rectangle = bookingDialog.getBoundingClientRect();
+
+      if (
+        event.clientX < rectangle.left ||
+        event.clientX > rectangle.right ||
+        event.clientY < rectangle.top ||
+        event.clientY > rectangle.bottom
+      ) {
+        bookingDialog.close();
+      }
+    });
+
+    $('#booking-form').addEventListener('submit', event => {
+      event.preventDefault();
+
+      try {
+        const guests = Number($('#booking-guests').value);
+
+        const trip = calculateTrip({
+          start: $('#booking-arrival').value,
+          end: $('#booking-departure').value,
+          guests,
+          occupancy: guests,
+          mealKey: 'none',
+          payment: $('#booking-payment').value,
+          transfer: 'Не выбран',
+          wishes: $('#booking-wishes').value.trim() || 'Не указаны'
+        }, 1, 2);
+
+        $('#booking-error').textContent = '';
+
+        saveBlob(
+          createTripExcel(trip, true),
+          `WGB-business-trip-${trip.start}.xlsx`
+        );
+
+        $('#booking-status').textContent =
+          'Расчёт сформирован. Проверьте загрузки браузера.';
+      } catch (error) {
+        $('#booking-error').textContent = error.message;
+        $('#booking-status').textContent = '';
+      }
+    });
+
+    updateGroup();
+  </script>
+</body>
+</html>
