@@ -970,7 +970,9 @@
       html { scroll-behavior: auto; }
       * { transition: none !important; }
     }
-  </style>
+  
+.extra-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:15px;margin-top:30px}.extra-card{border:1px solid var(--line);padding:22px;background:white}.extra-card h3{font-size:18px;margin-bottom:9px}.extra-card p{font-size:12px;line-height:1.7;color:var(--muted)}.service-options{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:16px 0}.service-options label{font-size:12px;display:flex;gap:8px;align-items:center}.lead-fields{border:1px solid var(--line);padding:15px;margin-top:20px}.lead-fields h4{margin-bottom:12px}.lead-fields input:not([type=checkbox]){width:100%;padding:10px;margin-bottom:8px}.lead-fields label{display:block;font-size:12px}.send-lead{margin-top:12px}@media(max-width:700px){.extra-grid,.service-options{grid-template-columns:1fr}}
+</style>
 </head>
 
 <body>
@@ -1294,6 +1296,8 @@
       </div>
     </section>
 
+
+<section class="section" id="extras"><div class="section-top"><p class="eyebrow">ДОПОЛНИТЕЛЬНЫЕ УСЛУГИ</p></div><div class="section-heading"><h2>Всё для деловой поездки.<br><em>В одном отеле.</em></h2><p>Добавьте услуги к запросу. Стоимость уточняется менеджером.</p></div><div id="extras-catalog" class="extra-grid"></div></section>
     <section class="section calculator-section" id="estimate">
       <div class="section-top">
         <p class="eyebrow">05 / ВАША ПОЕЗДКА</p>
@@ -1371,6 +1375,9 @@
               placeholder="Время прибытия, состав группы, особенности питания…"></textarea>
           </label>
 
+
+<fieldset style="border:0;padding:0;margin-top:18px"><legend>Дополнительные услуги</legend><div id="group-services" class="service-options"></div></fieldset>
+<div class="lead-fields"><h4>Контакты для заявки</h4><label>Имя<input id="group-name" autocomplete="name" maxlength="150"></label><label>Телефон<input id="group-phone" autocomplete="tel" maxlength="40"></label><label>Email<input id="group-email" type="email" autocomplete="email" maxlength="254"></label><label>Компания<input id="group-company" maxlength="150"></label><label><input type="checkbox" id="group-consent"> Согласие на обработку данных для ответа на заявку</label></div>
           <p class="error" id="form-error" role="alert"></p>
         </form>
 
@@ -1398,6 +1405,8 @@
             Скачать план в Excel <span aria-hidden="true">↗</span>
           </button>
 
+
+<button class="button send-lead" id="send-group" type="button">Отправить заявку <span>↗</span></button><p class="status" role="status" id="group-lead-status"></p>
           <p class="estimate-note" id="tariff-note"></p>
           <p class="status" id="download-status" role="status"></p>
         </aside>
@@ -1514,6 +1523,9 @@
                   placeholder="Ранний заезд, питание, документы…"></textarea>
       </label>
 
+
+<fieldset style="border:0;padding:0;margin-top:15px"><legend>Дополнительные услуги</legend><div id="individual-services" class="service-options"></div></fieldset>
+<div class="lead-fields"><h4>Контакты для заявки</h4><label>Имя<input id="individual-name" maxlength="150"></label><label>Телефон<input id="individual-phone" maxlength="40"></label><label>Email<input id="individual-email" type="email" maxlength="254"></label><label>Компания<input id="individual-company" maxlength="150"></label><label><input type="checkbox" id="individual-consent"> Согласие на обработку данных для ответа на заявку</label></div>
       <p class="error" id="booking-error" role="alert"></p>
 
       <button class="button" type="submit">
@@ -1525,11 +1537,86 @@
         на вашем устройстве. Запрос в отель не отправляется.
       </p>
       <p class="status" id="booking-status" role="status"></p>
+<button class="button send-lead" type="button" id="send-individual">Отправить заявку <span>↗</span></button><p class="status" id="individual-lead-status" role="status"></p>
+
     </form>
   </dialog>
 
   <script>
     'use strict';
+    // Supabase project URL and publishable (anon) key; NEVER paste service_role.
+    const SUPABASE_URL = '';
+    const SUPABASE_PUBLIC_KEY = '';
+    const FALLBACK_SERVICES=[
+    ['airport_transfer','Трансфер из аэропорта','Встреча и доставка гостей'],
+    ['meeting_room','Конференц-зал','Переговоры и презентации'],
+    ['coffee_break','Кофе-брейк','Напитки и закуски'],
+    ['banquet','Банкет или корпоративный ужин','Организация мероприятий'],
+    ['early_checkin','Ранний заезд / поздний выезд','Гибкое размещение'],
+    ['laundry','Прачечная и глажка','Уход за одеждой'],
+    ['workspace','Рабочее место','Для деловых поездок'],
+    ['city_transport','Групповой транспорт','Транспорт между площадками']
+    ].map(([id,title,description])=>({id,title,description}));
+    const dbReady=()=>Boolean(SUPABASE_URL && SUPABASE_PUBLIC_KEY);
+    const apiHeaders=()=>({'apikey':SUPABASE_PUBLIC_KEY,'Authorization':'Bearer '+SUPABASE_PUBLIC_KEY,'Content-Type':'application/json'});
+    function renderServices(items){
+      const root=document.getElementById('extras-catalog');root.replaceChildren();
+      for(const item of items){
+        const card=document.createElement('article');card.className='extra-card';
+        const h=document.createElement('h3');h.textContent=item.title;
+        const p=document.createElement('p');p.textContent=item.description;
+        card.append(h,p);root.append(card);
+      }
+      for(const id of ['group-services','individual-services']){
+        const target=document.getElementById(id);target.replaceChildren();
+        for(const item of items){
+          const label=document.createElement('label'),box=document.createElement('input');
+          box.type='checkbox';box.value=item.id;
+          label.append(box,document.createTextNode(item.title));target.append(label);
+        }
+      }
+    }
+    async function setupServices(){
+      renderServices(FALLBACK_SERVICES);
+      if(!dbReady())return;
+      try{
+        const response=await fetch(SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/services?select=id,title,description&active=eq.true&order=sort_order.asc',{headers:apiHeaders()});
+        if(!response.ok)throw Error('Service load failed');
+        renderServices(await response.json());
+      }catch(e){console.warn('Offline services catalog',e);}
+    }
+    function readContact(prefix){
+      const value=id=>document.getElementById(prefix+'-'+id).value.trim();
+      const contact_name=value('name'),contact_phone=value('phone'),contact_email=value('email'),company=value('company');
+      if(contact_name.length<2||contact_phone.length<5||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact_email))throw Error('Укажите имя, телефон и корректный email.');
+      if(!document.getElementById(prefix+'-consent').checked)throw Error('Подтвердите согласие на обработку данных.');
+      return {contact_name,contact_phone,contact_email,company};
+    }
+    async function sendLead(type){
+      const prefix=type==='group'?'group':'individual';
+      const status=document.getElementById(prefix+'-lead-status'),button=document.getElementById('send-'+prefix);
+      try{
+        const contact=readContact(prefix);
+        let trip;
+        if(type==='group')trip=readGroup();
+        else{
+          const guests=Number(document.getElementById('booking-guests').value);
+          trip=calculateTrip({start:document.getElementById('booking-arrival').value,end:document.getElementById('booking-departure').value,guests,occupancy:guests,mealKey:'none',payment:document.getElementById('booking-payment').value,transfer:'Не выбран',wishes:document.getElementById('booking-wishes').value.trim()},1,2);
+        }
+        if(!dbReady())throw Error('Приём заявок пока не подключён. Можно скачать Excel-план.');
+        const selected_services=[...document.querySelectorAll('#'+prefix+'-services input:checked')].map(el=>el.value);
+        const data={...contact,type,arrival:trip.start,departure:trip.end,guests:trip.guests,occupancy:trip.occupancy,meal_key:trip.mealKey,payment:trip.payment,transfer_requested:type==='group'&&document.getElementById('transfer').checked,selected_services,wishes:trip.wishes,estimated_total:trip.total};
+        button.disabled=true;status.textContent='Отправка заявки…';
+        const response=await fetch(SUPABASE_URL.replace(/\/$/,'')+'/rest/v1/leads',{method:'POST',headers:{...apiHeaders(),Prefer:'return=minimal'},body:JSON.stringify(data)});
+        if(!response.ok)throw Error('Ошибка сервера ('+response.status+').');
+        status.textContent='Заявка отправлена. Это ещё не подтверждение бронирования.';
+      }catch(error){status.textContent=error.message;}
+      finally{button.disabled=false;}
+    }
+    document.getElementById('send-group').addEventListener('click',()=>sendLead('group'));
+    document.getElementById('send-individual').addEventListener('click',()=>sendLead('individual'));
+    setupServices();
+
 
     /*
      * Настройки демонстрационных тарифов.
