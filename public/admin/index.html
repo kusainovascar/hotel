@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WGB Hotel — Панель управления ИИ-агентом</title>
+  <link rel="stylesheet" href="/public/admin/admin.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <!-- Экран авторизации -->
+  <div id="login-modal" class="login-overlay">
+    <div class="login-card">
+      <div class="brand">WGB<small>AI MANAGEMENT SYSTEM</small></div>
+      <h2>Вход в панель управления</h2>
+      <p class="subtitle">Управление ИИ-агентом отеля WGB, OpenAI API и заявками</p>
+      
+      <form id="login-form">
+        <label for="admin-password">Пароль администратора</label>
+        <div class="input-group">
+          <input type="password" id="admin-password" placeholder="Введите пароль..." required autofocus autocomplete="current-password">
+          <button type="button" id="toggle-pwd-btn" class="icon-btn" title="Показать пароль">👁️</button>
+        </div>
+        <p class="hint">Пароль по умолчанию: <code>admin12345</code></p>
+        <p id="login-error" class="error-msg" hidden></p>
+        <button type="submit" class="btn btn-primary btn-block" id="login-btn">Войти в систему</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Основной интерфейс панели -->
+  <div id="admin-app" class="admin-wrapper" hidden>
+    <!-- Боковое меню -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <a href="/" class="brand" target="_blank" title="Открыть сайт отеля">WGB<small>HOTEL & RESTAURANT</small></a>
+        <div class="agent-live-badge">
+          <span class="pulse-dot" id="agent-dot"></span>
+          <span id="agent-state-label">ИИ активен</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="tab-analytics">
+          <span class="nav-icon">📊</span>
+          <span>Аналитика и обзор</span>
+        </button>
+        <button class="nav-item" data-tab="tab-settings">
+          <span class="nav-icon">⚙️</span>
+          <span>OpenAI & Настройки</span>
+        </button>
+        <button class="nav-item" data-tab="tab-prompt">
+          <span class="nav-icon">🧠</span>
+          <span>System Prompt</span>
+        </button>
+        <button class="nav-item" data-tab="tab-kb">
+          <span class="nav-icon">📚</span>
+          <span>База знаний</span>
+        </button>
+        <button class="nav-item" data-tab="tab-leads">
+          <span class="nav-icon">💼</span>
+          <span>Заявки клиентов</span>
+          <span class="badge" id="leads-badge">0</span>
+        </button>
+        <button class="nav-item" data-tab="tab-dialogs">
+          <span class="nav-icon">💬</span>
+          <span>Диалоги и приватность</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <a href="/" class="btn btn-outline btn-sm btn-block" target="_blank">🌐 Открыть сайт</a>
+        <button id="logout-btn" class="btn btn-secondary btn-sm btn-block">Выйти</button>
+      </div>
+    </aside>
+
+    <!-- Основной контент -->
+    <main class="main-content">
+      <header class="topbar">
+        <div>
+          <h1 id="page-title">Аналитика и обзор работы ИИ-агента</h1>
+          <p class="text-muted" id="page-desc">Сводка показателей, статистика запросов и эффективность конверсий</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="api-status-badge" id="topbar-api-status">
+            <span class="status-indicator" id="topbar-status-dot"></span>
+            <span id="topbar-status-text">Проверка OpenAI...</span>
+          </div>
+          <button class="btn btn-outline btn-sm" id="refresh-data-btn">🔄 Обновить данные</button>
+        </div>
+      </header>
+
+      <!-- Вкладка 1: Аналитика и обзор -->
+      <section id="tab-analytics" class="tab-pane active">
+        <!-- KPI метрики -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">💬</div>
+            <div class="stat-info">
+              <span class="stat-title">Всего диалогов</span>
+              <span class="stat-value" id="stat-dialogs">0</span>
+              <span class="stat-sub">начатых сессий</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-info">
+              <span class="stat-title">Уникальные посетители</span>
+              <span class="stat-value" id="stat-visitors">0</span>
+              <span class="stat-sub">вовлеченных гостей</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📑</div>
+            <div class="stat-info">
+              <span class="stat-title">Сформировано заявок</span>
+              <span class="stat-value" id="stat-leads">0</span>
+              <span class="stat-sub">лидов с контактами</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🎯</div>
+            <div class="stat-info">
+              <span class="stat-title">Конверсия в заявки</span>
+              <span class="stat-value highlight" id="stat-conversion">0%</span>
+              <span class="stat-sub">диалогов в лиды</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">📞</div>
+            <div class="stat-info">
+              <span class="stat-title">Запросов к менеджеру</span>
+              <span class="stat-value" id="stat-handoffs">0</span>
+              <span class="stat-sub">передано человеку</span>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-info">
+              <span class="stat-title">Расход OpenAI API</span>
+              <span class="stat-value" id="stat-cost">$0.00</span>
+              <span class="stat-sub" id="stat-tokens">0 токенов</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Детальные таблицы аналитики -->
+        <div class="grid-2-col">
+          <div class="card">
+            <h3>Частые вопросы посетителей</h3>
+            <p class="card-desc">Популярные тематики запросов гостей отеля</p>
+            <div class="table-responsive">
+              <table class="table" id="questions-table">
+                <thead>
+                  <tr>
+                    <th>Тематика</th>
+                    <th style="width: 100px;">Запросов</th>
+                    <th style="width: 120px;">Доля</th>
+                  </tr>
+                </thead>
+                <tbody id="questions-list">
+                  <tr><td colspan="3" class="text-center text-muted">Загрузка данных...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <h3>Востребованные услуги отеля</h3>
+            <p class="card-desc">Интерес к конкретным сервисным направлениям WGB</p>
+            <div class="table-responsive">
+              <table class="table" id="services-table">
+                <thead>
+                  <tr>
+                    <th>Услуга / Функция</th>
+                    <th style="width: 100px;">Обращений</th>
+                    <th style="width: 120px;">Интерес</th>
+                  </tr>
+                </thead>
+                <tbody id="services-list">
+                  <tr><td colspan="3" class="text-center text-muted">Загрузка данных...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Последние полученные заявки -->
+        <div class="card mt-24">
+          <div class="card-header-flex">
+            <div>
+              <h3>Свежие заявки от клиентов</h3>
+              <p class="card-desc">Лиды, сформированные ИИ-консультантом</p>
+            </div>
+            <button class="btn btn-sm btn-outline" id="goto-all-leads-btn">Смотреть все заявки →</button>
+          </div>
+          <div class="table-responsive">
+            <table class="table" id="recent-leads-table">
+              <thead>
+                <tr>
+                  <th>Дата</th>
+                  <th>Имя клиента</th>
+                  <th>Телефон / Email</th>
+                  <th>Компания</th>
+                  <th>Даты / Гости</th>
+                  <th>Статус</th>
+                  <th>CRM</th>
+                </tr>
+              </thead>
+              <tbody id="recent-leads-list">
+                <tr><td colspan="7" class="text-center text-muted">Заявок пока нет</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Вкладка 2: Настройки OpenAI & Интеграции -->
+      <section id="tab-settings" class="tab-pane">
+        <div class="grid-2-col">
+          <!-- Блок OpenAI API -->
+          <div class="card">
+            <div class="card-header-flex">
+              <div>
+                <h3>Подключение OpenAI API</h3>
+                <p class="card-desc">Ключ хранится исключительно на сервере и не передается в браузер</p>
+              </div>
+              <div class="status-pill" id="settings-status-pill">
+                <span class="status-dot"></span>
+                <span id="settings-status-label">Проверка...</span>
+              </div>
+            </div>
+
+            <form id="openai-settings-form">
+              <div class="form-group">
+                <label for="cfg-api-key">OpenAI API Key</label>
+                <div class="input-with-button">
+                  <input type="password" id="cfg-api-key" placeholder="sk-proj-..." autocomplete="off">
+                  <button type="button" class="btn btn-secondary" id="test-connection-btn">⚡ Проверить подключение</button>
+                </div>
+                <small class="form-hint" id="api-key-hint">Текущий ключ: не установлен</small>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="cfg-model">AI Model (Модель)</label>
+                  <select id="cfg-model">
+                    <option value="gpt-4o-mini">gpt-4o-mini (Рекомендуется — быстрая и экономичная)</option>
+                    <option value="gpt-4o">gpt-4o (Максимальная точность и интеллект)</option>
+                    <option value="gpt-3.5-turbo">gpt-3.5-turbo (Классическая модель)</option>
+                  </select>
+                </div>
+
+                <div class="form-group">
+                  <label for="cfg-tokens">Max Output Tokens</label>
+                  <input type="number" id="cfg-tokens" min="100" max="4096" step="50" value="1200">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="cfg-temperature">
+                  Temperature: <span id="temp-val">0.7</span>
+                  <small class="text-muted">(Баланс креативности и строгости)</small>
+                </label>
+                <input type="range" id="cfg-temperature" min="0" max="1" step="0.05" value="0.7">
+              </div>
+
+              <div class="form-group">
+                <label class="switch-label">
+                  <input type="checkbox" id="cfg-active" checked>
+                  <span class="switch-slider"></span>
+                  <span class="switch-text">ИИ-агент включен и отображается на сайте</span>
+                </label>
+              </div>
+
+              <div class="form-group">
+                <label for="cfg-welcome">Приветственное сообщение агента</label>
+                <textarea id="cfg-welcome" rows="3"></textarea>
+              </div>
+
+              <div id="connection-test-result" class="alert-box" hidden></div>
+
+              <button type="submit" class="btn btn-primary" id="save-openai-cfg-btn">Сохранить настройки OpenAI</button>
+            </form>
+          </div>
+
+          <!-- Блок интеграции с Bitrix24 и хранение данных -->
+          <div class="card">
+            <h3>Интеграция с CRM Bitrix24</h3>
+            <p class="card-desc">Автоматическое создание лидов при оформлении заявки клиентом</p>
+
+            <form id="crm-settings-form">
+              <div class="form-group">
+                <label for="cfg-bitrix-url">Входящий вебхук Bitrix24 (REST API)</label>
+                <input type="url" id="cfg-bitrix-url" placeholder="https://domain.bitrix24.ru/rest/1/webhook-key/">
+                <small class="form-hint">Формат: вебхук с правами на модуль CRM (crm.lead.add)</small>
+              </div>
+
+              <div class="btn-group">
+                <button type="button" class="btn btn-secondary" id="test-crm-btn">🔍 Проверить вебхук</button>
+                <button type="submit" class="btn btn-primary">Сохранить CRM-вебхук</button>
+              </div>
+              <div id="crm-test-result" class="alert-box mt-16" hidden></div>
+            </form>
+
+            <hr class="divider">
+
+            <h3>Безопасность и хранение данных (GDPR)</h3>
+            <p class="card-desc">Политика автоматической очистки переписки гостей</p>
+
+            <form id="retention-form">
+              <div class="form-group">
+                <label for="cfg-retention">Срок хранения истории диалогов (в днях)</label>
+                <input type="number" id="cfg-retention" min="1" max="365" value="30">
+                <small class="form-hint">Диалоги старше указанного срока удаляются автоматически</small>
+              </div>
+
+              <div class="btn-group">
+                <button type="submit" class="btn btn-secondary">Сохранить срок</button>
+                <button type="button" class="btn btn-danger-outline" id="purge-old-btn">🗑️ Очистить устаревшие диалоги сейчас</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- Вкладка 3: System Prompt -->
+      <section id="tab-prompt" class="tab-pane">
+        <div class="card">
+          <div class="card-header-flex">
+            <div>
+              <h3>Системная инструкция для ИИ (System Prompt)</h3>
+              <p class="card-desc">Определяет роль, стиль общения, правила сбора данных и ограничения ИИ-консультанта</p>
+            </div>
+            <div class="btn-group">
+              <button type="button" class="btn btn-secondary btn-sm" id="reset-prompt-btn">🔄 Сбросить к базовому</button>
+              <button type="button" class="btn btn-primary btn-sm" id="save-prompt-btn">💾 Сохранить промпт</button>
+            </div>
+          </div>
+
+          <div class="form-group mt-16">
+            <textarea id="cfg-prompt" class="code-editor" rows="18" placeholder="Введите системный промпт..."></textarea>
+          </div>
+
+          <div class="callout-box">
+            <strong>💡 Важные рекомендации по системному промпту:</strong>
+            <ul>
+              <li>ИИ поддерживает мультиязычность: русский, казахский и английский языки.</li>
+              <li>Агент автоматически подключает инструменты вызова функций: <code>calculate_group_booking</code>, <code>create_booking_lead</code>, <code>request_human_manager</code>, <code>get_hotel_services_info</code>.</li>
+              <li>Запрещено обещать неподтвержденные скидки и бронирования без фиксации в системе.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- Вкладка 4: База знаний -->
+      <section id="tab-kb" class="tab-pane">
+        <div class="card">
+          <div class="card-header-flex">
+            <div>
+              <h3>База знаний отеля WGB</h3>
+              <p class="card-desc">ИИ-консультант черпает проверенные факты, цены и правила из этих статей</p>
+            </div>
+            <button class="btn btn-primary btn-sm" id="new-kb-btn">+ Добавить статью</button>
+          </div>
+
+          <!-- Список статей -->
+          <div class="kb-grid mt-20" id="kb-container">
+            <div class="text-muted">Загрузка базы знаний...</div>
+          </div>
+        </div>
+
+        <!-- Модальное окно добавления/редактирования статьи -->
+        <dialog id="kb-modal" class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h3 id="kb-modal-title">Статья базы знаний</h3>
+              <button type="button" class="modal-close" id="close-kb-modal">×</button>
+            </div>
+            <form id="kb-form">
+              <input type="hidden" id="kb-id">
+              <div class="form-group">
+                <label for="kb-category">Категория</label>
+                <input type="text" id="kb-category" list="category-suggestions" placeholder="Например: Номера и тарифы" required>
+                <datalist id="category-suggestions">
+                  <option value="Отель и расположение">
+                  <option value="Номера и тарифы">
+                  <option value="Правила проживания">
+                  <option value="Ресторан и питание">
+                  <option value="Деловые поездки">
+                  <option value="Групповые бронирования">
+                  <option value="Дополнительные услуги">
+                  <option value="Удобства и сервисы">
+                </datalist>
+              </div>
+
+              <div class="form-group">
+                <label for="kb-title">Заголовок статьи</label>
+                <input type="text" id="kb-title" placeholder="Краткое понятное название" required>
+              </div>
+
+              <div class="form-group">
+                <label for="kb-content">Содержимое (факты, тарифы, правила)</label>
+                <textarea id="kb-content" rows="6" placeholder="Точная проверенная информация, которую будет использовать ИИ..." required></textarea>
+              </div>
+
+              <div class="form-group">
+                <label for="kb-keywords">Ключевые слова (через запятую)</label>
+                <input type="text" id="kb-keywords" placeholder="заезд, выезд, часы, правила">
+              </div>
+
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" id="cancel-kb-btn">Отмена</button>
+                <button type="submit" class="btn btn-primary" id="save-kb-btn">Сохранить статью</button>
+              </div>
+            </form>
+          </div>
+        </dialog>
+      </section>
+
+      <!-- Вкладка 5: Заявки клиентов -->
+      <section id="tab-leads" class="tab-pane">
+        <div class="card">
+          <div class="card-header-flex">
+            <div>
+              <h3>Заявки на бронирование и расчет</h3>
+              <p class="card-desc">Все контакты и запросы, собранные виртуальным консультантом</p>
+            </div>
+            <div class="btn-group">
+              <button class="btn btn-outline btn-sm" id="export-leads-btn">📥 Экспорт в CSV</button>
+            </div>
+          </div>
+
+          <div class="table-responsive mt-16">
+            <table class="table" id="all-leads-table">
+              <thead>
+                <tr>
+                  <th>ID / Дата</th>
+                  <th>Клиент</th>
+                  <th>Контакты</th>
+                  <th>Компания</th>
+                  <th>Даты и гости</th>
+                  <th>Пожелания и резюме ИИ</th>
+                  <th>Статус</th>
+                  <th>Bitrix24 CRM</th>
+                </tr>
+              </thead>
+              <tbody id="all-leads-list">
+                <tr><td colspan="8" class="text-center text-muted">Загрузка заявок...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Вкладка 6: Диалоги и приватность -->
+      <section id="tab-dialogs" class="tab-pane">
+        <div class="dialogs-layout">
+          <!-- Список сессий -->
+          <div class="card dialogs-sidebar">
+            <div class="card-header-flex">
+              <h3>Сессии диалогов</h3>
+              <span class="text-muted text-sm" id="dialogs-count">0</span>
+            </div>
+            <div class="dialogs-list" id="dialogs-sessions-list">
+              <div class="text-muted text-center p-16">Загрузка диалогов...</div>
+            </div>
+          </div>
+
+          <!-- Окно просмотра выбранного диалога -->
+          <div class="card dialog-view">
+            <div class="dialog-view-header" id="dialog-header">
+              <div>
+                <h3 id="current-dialog-id">Выберите сессию для просмотра</h3>
+                <p class="card-desc" id="current-dialog-meta">—</p>
+              </div>
+              <div id="dialog-actions" hidden>
+                <button class="btn btn-danger-outline btn-sm" id="delete-dialog-btn" title="Удалить персональные данные (GDPR)">🗑️ Удалить диалог</button>
+              </div>
+            </div>
+
+            <div class="chat-history-box" id="chat-messages-container">
+              <div class="empty-state">
+                <span>👈</span>
+                <p>Выберите диалог из списка слева, чтобы ознакомиться с ходом беседы</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Всплывающие уведомления (Toast) -->
+  <div id="toast" class="toast"></div>
+
+  <script src="/public/admin/admin.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
