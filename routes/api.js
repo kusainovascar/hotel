@@ -28,7 +28,7 @@ router.get('/agent/status', (req, res) => {
   res.json({
     isActive: Boolean(settings.isActive),
     welcomeMessage: settings.welcomeMessage,
-    hasApiKey: Boolean(settings.apiKey && settings.apiKey.trim().length > 5)
+    hasApiKey: Boolean((settings.apiKey || process.env.OPENAI_API_KEY || '').trim())
   });
 });
 

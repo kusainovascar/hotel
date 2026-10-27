@@ -24,3 +24,9 @@ test('public database endpoint is safe and calculator uses its tariffs',async()=
 });
 test('contact form rejects missing consent without creating a lead',async()=>{const response=await post('/api/lead',{name:'Test',phone:'Test'});assert.equal(response.status,400);assert.match((await response.json()).error,/согласие/);});
 test('pricing administration requires authentication',async()=>{assert.equal((await fetch(base+'/api/admin/pricing')).status,401);});
+test('status recognises a key from environment even with an older empty database setting',async()=>{
+ const previous=process.env.OPENAI_API_KEY;
+ process.env.OPENAI_API_KEY='test-environment-key-not-real';
+ try {const status=await (await fetch(base+'/api/agent/status')).json();assert.equal(status.hasApiKey,true);assert.equal(status.apiKey,undefined);}
+ finally {process.env.OPENAI_API_KEY=previous;}
+});

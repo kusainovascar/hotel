@@ -70,7 +70,7 @@ const server = app.listen(PORT, () => {
   console.log(`🌐 Сайт: http://localhost:${PORT}`);
   console.log(`⚙️  Панель управления: http://localhost:${PORT}/admin`);
   console.log(`🤖 Модель OpenAI: ${settings.model}`);
-  console.log(`🔑 Статус API-ключа: ${settings.apiKey ? 'Настроен' : 'Не настроен (работает fallback)'}`);
+  console.log(`🔑 Статус API-ключа: ${(settings.apiKey || process.env.OPENAI_API_KEY) ? 'Настроен' : 'Не настроен (работает fallback)'}`);
   console.log('====================================================');
 });
 

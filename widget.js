@@ -492,6 +492,9 @@
       });
 
       hideTypingIndicator();
+      if (!staticDemo && data.mode === 'openai') {
+        chatWidget.querySelector('#wgb-agent-mode').textContent = 'ИИ-консультант · OpenAI';
+      }
       if (!staticDemo && data.mode === 'fallback') {
         chatWidget.querySelector('#wgb-agent-mode').textContent = 'Справочный режим · ИИ недоступен';
       }
