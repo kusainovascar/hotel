@@ -971,6 +971,51 @@
       html { scroll-behavior: auto; }
       * { transition: none !important; }
     }
+    .brand-with-logo {
+      display: inline-flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-logo {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+      flex: 0 0 auto;
+      border-radius: 6px;
+    }
+
+    @media (max-width: 1050px) and (min-width: 761px) {
+      header { gap: 18px; }
+      header .brand-with-logo { gap: 10px; font-size: 34px; letter-spacing: 5px; }
+      header .brand-logo { width: 56px; height: 56px; }
+      header > .button { margin-left: auto; }
+      header .menu-button { display: block; }
+      header nav {
+        display: none;
+        position: absolute;
+        top: 100%; left: 0; right: 0;
+        padding: 25px 6%;
+        background: var(--paper);
+        border-bottom: 1px solid var(--line);
+        z-index: 10;
+      }
+      header nav.open { display: flex; flex-direction: column; gap: 23px; }
+    }
+
+    @media (max-width: 760px) {
+      header .brand-with-logo { gap: 9px; }
+      header .brand-logo { width: 48px; height: 48px; }
+    }
+
+    @media (max-width: 380px) {
+      header { gap: 10px; }
+      header .brand-with-logo { gap: 7px; font-size: 28px; letter-spacing: 3px; }
+      header .brand-logo { width: 36px; height: 36px; }
+      header > .button { min-width: 0; gap: 5px; padding: 9px 6px; }
+      header .brand small { letter-spacing: 0.7px; }
+    }
+
   </style>
 </head>
 
@@ -1006,9 +1051,9 @@
   </div>
 
   <header>
-    <a class="brand" href="#" aria-label="WGB — на главную">
-      WGB
-      <small>HOTEL & RESTAURANT</small>
+    <a class="brand brand-with-logo" href="#" aria-label="WGB — на главную">
+      <img class="brand-logo" src="wgb-logo.webp" width="72" height="72" alt="Burabay Eco Hotel — геометрический олень">
+      <span>WGB<small>HOTEL & RESTAURANT</small></span>
     </a>
 
     <nav id="navigation" aria-label="Основная навигация">
