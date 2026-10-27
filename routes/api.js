@@ -5,6 +5,7 @@ const router = express.Router();
 const rateLimit = require('express-rate-limit');
 const store = require('../data/store');
 const aiService = require('../services/aiService');
+const policy = require('../assistant-policy');
 const { calculateHotelTrip } = require('../services/hotelCalculator');
 const crmService = require('../services/crmService');
 
@@ -36,7 +37,7 @@ router.get('/agent/status', (req, res) => {
  */
 router.post('/chat', chatLimiter, async (req, res) => {
   try {
-    const { sessionId, message, visitorId } = req.body;
+    const { sessionId, message, visitorId } = req.body || {};
 
     if (!sessionId || typeof sessionId !== 'string') {
       return res.status(400).json({ error: 'Параметр sessionId обязателен' });
@@ -46,8 +47,10 @@ router.post('/chat', chatLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Текст сообщения не может быть пустым' });
     }
 
-    // Санитизация длины сообщения для защиты от переполнения контекста
-    const cleanMessage = message.trim().slice(0, 2000);
+    let cleanMessage;
+    try { cleanMessage = policy.validateMessage(message); }
+    catch(error) { return res.status(400).json({error: error.message}); }
+    if (sessionId.length > 128 || !/^[A-Za-z0-9_-]+$/.test(sessionId) || ['__proto__','constructor','prototype'].includes(sessionId)) return res.status(400).json({error:'Некорректный sessionId'});
     const cleanVisitorId = (visitorId && typeof visitorId === 'string') ? visitorId.slice(0, 64) : 'guest';
 
     const result = await aiService.processMessage({
@@ -61,7 +64,7 @@ router.post('/chat', chatLimiter, async (req, res) => {
     console.error('Ошибка в роуте /api/chat:', err);
     res.status(500).json({
       error: 'Внутренняя ошибка сервера при обработке сообщения',
-      details: err.message
+      details: 'Попробуйте повторить запрос позже.'
     });
   }
 });
@@ -81,7 +84,13 @@ router.get('/chat/history/:sessionId', (req, res) => {
 /**
  * Прямое создание заявки клиентом (например, из формы виджета или кнопки "Связаться с менеджером")
  */
+router.get('/agent/knowledge', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json(store.getPublicAssistantContext());
+});
+
 router.post('/lead', async (req, res) => {
+  if (req.body?.consentConfirmed !== true) return res.status(400).json({error: 'Подтвердите согласие на обработку и передачу контактов менеджеру.'});
   try {
     const { name, phone, email, company, dates, guests, rooms, wishes, summary, sessionId } = req.body;
 

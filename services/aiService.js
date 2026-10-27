@@ -2,8 +2,8 @@
 
 const { OpenAI } = require('openai');
 const store = require('../data/store');
+const policy = require('./assistantPolicy');
 const { calculateHotelTrip } = require('./hotelCalculator');
-const crmService = require('./crmService');
 
 class AiService {
   /**
@@ -81,7 +81,7 @@ class AiService {
         type: 'function',
         function: {
           name: 'calculate_group_booking',
-          description: 'Рассчитать предварительную стоимость проживания и питания в отеле WGB по официальным тарифам',
+          description: 'Рассчитать предварительную стоимость проживания и питания в отеле WGB по тарифам базы с обязательным указанием их статуса (demo или verified)',
           parameters: {
             type: 'object',
             properties: {
@@ -105,7 +105,7 @@ class AiService {
               mealType: {
                 type: 'string',
                 enum: ['none', 'breakfast', 'half', 'full'],
-                description: 'Тип питания: none (без питания), breakfast (завтрак 4000₸), half (полупансион 10000₸), full (полный пансион 15000₸)'
+                description: 'Тип питания: none (без питания), breakfast (завтрак), half (полупансион), full (полный пансион)'
               },
               transferNeeded: {
                 type: 'boolean',
@@ -116,7 +116,7 @@ class AiService {
                 description: 'Особые пожелания или требования к размещению'
               }
             },
-            required: ['startDate', 'endDate', 'guestsCount']
+            required: ['startDate', 'endDate', 'guestsCount', 'occupancyPerRoom', 'mealType']
           }
         }
       },
@@ -227,8 +227,8 @@ class AiService {
           start: args.startDate,
           end: args.endDate,
           guests: args.guestsCount,
-          occupancy: args.occupancyPerRoom || 2,
-          mealKey: args.mealType || 'none',
+          occupancy: args.occupancyPerRoom,
+          mealKey: args.mealType,
           transfer: args.transferNeeded ? 'Требуется' : 'Не выбран'
         });
 
@@ -237,7 +237,7 @@ class AiService {
         return {
           success: true,
           data: result,
-          displayText: `Расчёт: ${result.nights} ноч., ${result.rooms} ном., общее проживание ${result.roomCost.toLocaleString('ru-RU')} ₸, питание ${result.mealCost.toLocaleString('ru-RU')} ₸. ИТОГО: ${result.total.toLocaleString('ru-RU')} ₸ (${result.perPerson.toLocaleString('ru-RU')} ₸/чел).`
+          displayText: `${result.tariffStatus === 'verified' ? 'Предварительный' : 'Демонстрационный'} расчёт: ${result.nights} ноч., ${result.rooms} ном., общее проживание ${result.roomCost.toLocaleString('ru-RU')} ₸, питание ${result.mealCost.toLocaleString('ru-RU')} ₸. ИТОГО: ${result.total.toLocaleString('ru-RU')} ₸ (${result.perPerson.toLocaleString('ru-RU')} ₸/чел).`
         };
       } catch (err) {
         return { success: false, error: err.message };
@@ -245,62 +245,10 @@ class AiService {
     }
 
     if (name === 'create_booking_lead') {
-      try {
-        const settings = store.getSettings();
-        const lead = store.addLead({
-          name: args.clientName,
-          company: args.company,
-          phone: args.phone,
-          email: args.email,
-          dates: { start: args.startDate, end: args.endDate },
-          guests: args.guestsCount,
-          rooms: args.roomsCount,
-          wishes: args.wishes,
-          summary: args.conversationSummary || 'Заявка оформлена через ИИ-консультанта',
-          source: 'ai_agent'
-        });
-
-        // Отправка в CRM Bitrix24
-        if (settings.bitrixWebhookUrl) {
-          crmService.sendLeadToBitrix(lead, settings.bitrixWebhookUrl).then(res => {
-            store.updateLead(lead.id, {
-              crmStatus: res.status,
-              crmId: res.crmId || null,
-              crmError: res.success ? null : res.message
-            });
-          }).catch(console.error);
-        } else {
-          store.updateLead(lead.id, { crmStatus: 'not_configured' });
-        }
-
-        return {
-          success: true,
-          leadId: lead.id,
-          message: 'Заявка успешно зарегистрирована в системе отеля WGB. Менеджер свяжется с клиентом.'
-        };
-      } catch (err) {
-        return { success: false, error: err.message };
-      }
+      return {success: false, error: 'Для заявки используйте форму контактов с отдельным явным согласием пользователя. Чат не подтверждает бронирование.'};
     }
-
     if (name === 'request_human_manager') {
-      store.trackManagerHandoff();
-      store.trackPopularService('Связь с менеджером');
-
-      if (args.contactInfo) {
-        store.addLead({
-          name: args.clientName || 'Гость (запрос менеджера)',
-          phone: args.contactInfo,
-          wishes: `Запрос связи с менеджером. Причина: ${args.reason || 'Вопрос клиента'}`,
-          summary: `Клиент запросил связь с живым специалистом: ${args.reason || ''}`,
-          source: 'manager_handoff'
-        });
-      }
-
-      return {
-        success: true,
-        message: 'Запрос на связь с менеджером зафиксирован. Специалист отеля подключится или перезвонит.'
-      };
+      return {success: false, actionType: 'request_contacts', message: 'Для обращения менеджеру заполните форму и подтвердите согласие. Подключение и срок ответа не подтверждены.'};
     }
 
     if (name === 'get_hotel_services_info') {
@@ -318,70 +266,19 @@ class AiService {
    * Интеллектуальный локальный fallback (если OpenAI ключ не настроен или сервис недоступен)
    */
   generateFallbackResponse(userMessage, sessionId) {
-    const text = userMessage.toLowerCase();
-    const settings = store.getSettings();
-
-    // Отслеживаем категорию
-    if (text.includes('цен') || text.includes('тариф') || text.includes('стоим') || text.includes('номер')) {
-      store.trackPopularQuestion('Номера и цены');
-      return {
-        reply: `В отеле WGB представлены уютные номера категорий:\n• **«Комфорт»** (для индивидуальных деловых поездок, большая кровать, рабочая зона) — от 30 000 ₸/сутки;\n• **«Команда вместе / Твин»** (для групп и коллег с раздельной или гибкой схематикой) — от 30 000 ₸ за номер.\n\nХотите рассчитать даты или оставить контакты для бронирования?`,
-        suggestedActions: ['Рассчитать групповое проживание', 'Забронировать номер', 'Связаться с менеджером']
-      };
-    }
-
-    if (text.includes('заезд') || text.includes('выезд') || text.includes('check-in') || text.includes('время')) {
-      store.trackPopularQuestion('Время заезда/выезда');
-      return {
-        reply: `Стандартное время заезда в отель WGB — **с 14:00**, выезд — **до 12:00**.\n\nРанний заезд и поздний выезд возможны при наличии номеров и согласуются с администратором. Стойка регистрации работает круглосуточно (24/7).`,
-        suggestedActions: ['Забронировать номер', 'Связаться с менеджером']
-      };
-    }
-
-    if (text.includes('питани') || text.includes('завтрак') || text.includes('обед') || text.includes('ужин') || text.includes('ресторан')) {
-      store.trackPopularQuestion('Ресторан и питание');
-      return {
-        reply: `В ресторане отеля WGB доступны следующие варианты питания:\n• **Завтрак (шведский стол):** 4 000 ₸/гостя;\n• **Полупансион (завтрак + ужин):** 10 000 ₸/гостя;\n• **Полный пансион (завтрак + обед + ужин):** 15 000 ₸/гостя.\n\nДля групп возможно согласование индивидуального меню и кофе-брейков.`,
-        suggestedActions: ['Рассчитать групповое проживание', 'Связаться с менеджером']
-      };
-    }
-
-    if (text.includes('документ') || text.includes('бухгалтер') || text.includes('эсф') || text.includes('авр') || text.includes('безнал') || text.includes('командировк')) {
-      store.trackPopularQuestion('Документы и командировки');
-      return {
-        reply: `Для командировочных гостей и юридических лиц отель WGB предоставляет полный пакет закрывающих документов: ЭСФ, акты выполненных работ (АВР), фискальные чеки и справки о проживании. Оплата возможна по безналичному расчету по счету на оплату или картой.`,
-        suggestedActions: ['Организовать деловую поездку', 'Связаться с менеджером']
-      };
-    }
-
-    if (text.includes('менеджер') || text.includes('человек') || text.includes('оператор') || text.includes('позвон')) {
-      store.trackManagerHandoff();
-      return {
-        reply: `Я с радостью передам ваш запрос менеджеру отеля WGB. Пожалуйста, укажите ваше **имя и номер телефона** (или email), и специалист свяжется с вами в течение 10–15 минут.`,
-        actionType: 'request_contacts',
-        suggestedActions: ['Оставить контакты']
-      };
-    }
-
-    if (text.includes('рассчит') || text.includes('калькулятор') || text.includes('групп')) {
-      store.trackPopularQuestion('Групповой расчет');
-      return {
-        reply: `Для точного расчета группового проживания укажите:\n1. Планируемые даты заезда и выезда\n2. Количество гостей\n3. Необходимость питания (завтрак, полупансион, полный пансион)\n\nТакже вы можете воспользоваться удобным калькулятором на сайте с выгрузкой сметы в Excel.`,
-        suggestedActions: ['Рассчитать групповое проживание', 'Связаться с менеджером']
-      };
-    }
-
-    // Общий доброжелательный ответ
-    return {
-      reply: `Благодарю за вопрос! Я могу помочь вам:\n• Подобрать номер для командировки или отдыха\n• Рассчитать стоимость проживания для группы\n• Рассказать о ресторане, питании и закрывающих документах\n• Передать ваш вопрос менеджеру отеля\n\nПодскажите, какие даты или услуги вас интересуют?`,
-      suggestedActions: ['Забронировать номер', 'Рассчитать групповое проживание', 'Связаться с менеджером']
-    };
+    const dialog = store.getOrCreateDialog(sessionId);
+    const result = policy.fallback(userMessage, store.getPublicAssistantContext(), dialog.bookingDraft);
+    dialog.bookingDraft = result.bookingDraft;
+    store.save();
+    const {bookingDraft, ...response} = result;
+    return response;
   }
 
   /**
    * Главный метод обработки сообщения от пользователя
    */
   async processMessage({ sessionId, message, visitorId }) {
+    message = policy.validateMessage(message);
     const settings = store.getSettings();
 
     if (!settings.isActive) {
@@ -421,7 +318,8 @@ class AiService {
     // Если клиент доступен — вызываем OpenAI API
     try {
       const kbContext = store.getKnowledgeBaseContext();
-      const systemContent = `${settings.systemPrompt}\n\nБаза знаний отеля WGB (используй только эти подтвержденные данные):\n${kbContext}\n\nСегодняшняя дата: ${new Date().toISOString().split('T')[0]}`;
+      const customPrompt = settings.systemPrompt === policy.SYSTEM_POLICY ? '' : settings.systemPrompt;
+      const systemContent = `${customPrompt}\n\nОБЯЗАТЕЛЬНЫЙ РЕГЛАМЕНТ:\n${policy.SYSTEM_POLICY}\n\nБаза знаний (статусы записей обязательны):\n${kbContext}\n\nАктуальные тарифы из базы: ${JSON.stringify(store.getPricing())}\nСегодняшняя дата в Asia/Qyzylorda: ${policy.today()}`;
 
       // Формируем историю последних сообщений (до 10 для сохранения контекста)
       const recentMessages = dialog.messages.slice(-10).map(m => ({
@@ -442,7 +340,7 @@ class AiService {
         messages: messagesForApi,
         tools: tools,
         tool_choice: 'auto',
-        temperature: Number(settings.temperature) || 0.7,
+        temperature: Number.isFinite(Number(settings.temperature)) ? Number(settings.temperature) : 0.2,
         max_tokens: Number(settings.maxTokens) || 1200
       });
 
@@ -478,6 +376,7 @@ class AiService {
           if (fnName === 'calculate_group_booking' && toolResult.data) {
             extraMetadata.calculation = toolResult.data;
           }
+          if (toolResult.actionType) extraMetadata.actionType = toolResult.actionType;
           if (fnName === 'create_booking_lead' && toolResult.leadId) {
             extraMetadata.leadCreated = true;
             extraMetadata.leadId = toolResult.leadId;
@@ -494,7 +393,7 @@ class AiService {
         const finalCompletion = await client.chat.completions.create({
           model: settings.model || 'gpt-4o-mini',
           messages: messagesForApi,
-          temperature: Number(settings.temperature) || 0.7,
+          temperature: Number.isFinite(Number(settings.temperature)) ? Number(settings.temperature) : 0.2,
           max_tokens: Number(settings.maxTokens) || 1200
         });
 
@@ -538,7 +437,7 @@ class AiService {
         suggestedActions: fallback.suggestedActions,
         actionType: fallback.actionType,
         mode: 'fallback',
-        warning: `Ответ сформирован встроенной базой знаний отеля (OpenAI API временно недоступен: ${err.message})`
+        warning: 'ИИ временно недоступен. Ответ сформирован в справочном режиме из базы отеля.'
       };
     }
   }

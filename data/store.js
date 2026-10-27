@@ -1,31 +1,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, 'database.json');
+const DB_PATH = process.env.WGB_DB_PATH || path.join(__dirname, 'database.json');
+const policy = require('../assistant-policy');
+const DEFAULT_PRICING = {status: 'demo', roomRate: 30000, maxGuests: 300, meals: {none: {label: 'Без питания', rate: 0}, breakfast: {label: 'Завтрак', rate: 4000}, half: {label: 'Завтрак и ужин', rate: 10000}, full: {label: 'Полный пансион', rate: 15000}}};
 
-const DEFAULT_SYSTEM_PROMPT = `Ты — виртуальный консультант отеля WGB.
-
-Твоя задача — помогать гостям выбирать услуги отеля, получать информацию о проживании и оформлять заявки на индивидуальное и групповое бронирование.
-
-Общайся естественно, профессионально и доброжелательно.
-
-Определяй язык пользователя и отвечай на этом языке. Поддерживай русский, казахский и английский.
-
-Не задавай много вопросов одновременно. Уточняй только информацию, необходимую для решения задачи клиента.
-
-Если посетитель интересуется групповым проживанием, последовательно собери информацию о датах, количестве гостей, номерах, питании и дополнительных услугах.
-
-Используй только подтверждённые данные из базы знаний и подключённых систем.
-
-Не придумывай цены, скидки, наличие номеров и условия бронирования.
-
-Не обещай скидки и не подтверждай бронирования без данных из соответствующей системы.
-
-После сбора необходимой информации предложи отправить заявку менеджеру.
-
-Перед сбором и передачей персональных данных предоставь пользователю информацию об их обработке и получи необходимое согласие.
-
-Твоя главная бизнес-задача — помочь посетителю решить его вопрос и, когда это уместно, преобразовать заинтересованность в качественную заявку на бронирование.`;
+const DEFAULT_SYSTEM_PROMPT = policy.SYSTEM_POLICY;
 
 const DEFAULT_KNOWLEDGE_BASE = [
   {
@@ -93,10 +73,12 @@ class Store {
 
   getDefaults() {
     return {
+      schemaVersion: 2,
+      pricing: JSON.parse(JSON.stringify(DEFAULT_PRICING)),
       settings: {
         apiKey: process.env.OPENAI_API_KEY || '',
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-        temperature: 0.7,
+        temperature: 0.2,
         maxTokens: 1200,
         isActive: true,
         welcomeMessage: 'Здравствуйте! Я виртуальный консультант WGB. Помогу подобрать номер, рассчитать групповое проживание или ответить на вопросы об отеле.',
@@ -104,7 +86,7 @@ class Store {
         bitrixWebhookUrl: process.env.BITRIX24_WEBHOOK_URL || '',
         dataRetentionDays: Number(process.env.DATA_RETENTION_DAYS) || 30
       },
-      knowledgeBase: DEFAULT_KNOWLEDGE_BASE,
+      knowledgeBase: DEFAULT_KNOWLEDGE_BASE.map(item => ({...item, status: 'demo', isPublic: true})),
       leads: [],
       dialogs: {},
       analytics: {
@@ -130,8 +112,10 @@ class Store {
         // Объединяем с дефолтными значениями на случай обновления структуры
         const defaults = this.getDefaults();
         return {
+          schemaVersion: 2,
+          pricing: {...defaults.pricing, ...parsed.pricing, meals: {...defaults.pricing.meals, ...parsed.pricing?.meals}},
           settings: { ...defaults.settings, ...parsed.settings },
-          knowledgeBase: Array.isArray(parsed.knowledgeBase) && parsed.knowledgeBase.length > 0 ? parsed.knowledgeBase : defaults.knowledgeBase,
+          knowledgeBase: Array.isArray(parsed.knowledgeBase) && parsed.knowledgeBase.length > 0 ? parsed.knowledgeBase.map(item => ({status: 'demo', isPublic: true, ...item})) : defaults.knowledgeBase,
           leads: Array.isArray(parsed.leads) ? parsed.leads : [],
           dialogs: parsed.dialogs || {},
           analytics: { ...defaults.analytics, ...parsed.analytics }
@@ -152,10 +136,36 @@ class Store {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(DB_PATH, JSON.stringify(dataToSave, null, 2), 'utf-8');
+      const temporary = DB_PATH + '.tmp';
+      fs.writeFileSync(temporary, JSON.stringify(dataToSave, null, 2), {encoding: 'utf-8', mode: 0o600});
+      fs.renameSync(temporary, DB_PATH);
     } catch (err) {
-      console.error('Ошибка записи database.json:', err);
+      console.error('Ошибка записи database.json:', err.message);
+      throw err;
     }
+  }
+
+  getPricing() { return JSON.parse(JSON.stringify(this.data.pricing)); }
+
+  updatePricing(pricing) {
+    if (!['demo','verified'].includes(pricing.status) || !Number.isFinite(pricing.roomRate) || pricing.roomRate < 0 || !Number.isInteger(pricing.maxGuests) || pricing.maxGuests < 1 || pricing.maxGuests > 10000) throw new Error('Проверьте статус, тариф и количество гостей.');
+    for (const key of ['none','breakfast','half','full']) {
+      const meal = pricing.meals?.[key];
+      if (!meal || typeof meal.label !== 'string' || !Number.isFinite(meal.rate) || meal.rate < 0) throw new Error('Проверьте тарифы питания.');
+    }
+    this.data.pricing = JSON.parse(JSON.stringify(pricing)); this.save();
+    return this.getPricing();
+  }
+
+  getPublicAssistantContext() {
+    const pricing = this.getPricing();
+    const knowledgeBase = this.data.knowledgeBase.filter(item => item.isPublic !== false).map(({id,category,title,content,keywords,status}) => {
+      // Legacy seed articles repeated prices. Structured pricing is authoritative.
+      if (id === 'kb_rooms') content = content.replace(/Базовый демонстрационный тариф[^.]*\.|Минимальная группа[^.]*\./g, '').trim();
+      if (id === 'kb_dining') content = content.replace(/[\d ][\d ]*\s*₸\/гостя|[\d ][\d ]*\s*₸ за гостя в день/g, 'по тарифу из расчёта');
+      return {id,category,title,content,keywords,status: status || 'demo'};
+    });
+    return {pricing, knowledgeBase};
   }
 
   // Настройки
@@ -175,8 +185,8 @@ class Store {
   }
 
   getKnowledgeBaseContext() {
-    return this.data.knowledgeBase
-      .map(item => `### [${item.category}] ${item.title}\n${item.content}`)
+    return this.getPublicAssistantContext().knowledgeBase
+      .map(item => `### [${item.status === 'verified' ? 'Подтверждено' : 'Демонстрационные сведения'} / ${item.category}] ${item.title}\n${item.content}`)
       .join('\n\n');
   }
 
@@ -190,6 +200,8 @@ class Store {
         category: item.category || 'Общее',
         title: item.title || 'Новая статья',
         content: item.content || '',
+        status: item.status === 'verified' ? 'verified' : 'demo',
+        isPublic: item.isPublic !== false,
         keywords: Array.isArray(item.keywords) ? item.keywords : []
       };
       this.data.knowledgeBase.push(newItem);

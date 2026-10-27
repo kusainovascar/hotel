@@ -5,6 +5,33 @@
 (function() {
   'use strict';
 
+  const scriptBase = new URL('.', document.currentScript.src);
+  const configuredBase = (window.WGB_ASSISTANT_CONFIG?.apiBase || '').replace(/\/$/, '');
+  const staticDemo = location.hostname.endsWith('.github.io') && !configuredBase;
+  const apiBase = configuredBase || '/api';
+  let referenceDraft = {};
+  async function requestJson(path, options = {}) {
+    const response = await fetch(apiBase + path, {...options, signal: AbortSignal.timeout(20000)});
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || `Сервер ассистента недоступен (${response.status}).`);
+    }
+    return response.json();
+  }
+  async function referenceReply(text) {
+    const response = await fetch(new URL('assistant-knowledge.json', scriptBase), {cache: 'no-store'});
+    if (!response.ok) throw new Error('Публичная база знаний недоступна.');
+    const context = await response.json();
+    const result = window.WgbAssistantPolicy.fallback(text, context, referenceDraft);
+    referenceDraft = result.bookingDraft;
+    // The reference mode never collects or transmits contacts.
+    if (result.actionType === 'request_contacts') {
+      delete result.actionType;
+      result.reply = 'Сейчас доступен справочный режим: отправка обращений менеджеру не подключена. Контакты не собираются.';
+    }
+    return result;
+  }
+
   // Инициализация уникального идентификатора сессии и посетителя
   let sessionId = sessionStorage.getItem('wgb_chat_session_id');
   if (!sessionId) {
@@ -22,7 +49,7 @@
   const widgetState = {
     isOpen: false,
     isActive: true,
-    welcomeMessage: 'Здравствуйте! Я виртуальный консультант WGB. Помогу подобрать номер, рассчитать групповое проживание или ответить на вопросы об отеле.',
+    welcomeMessage: staticDemo ? 'Здравствуйте! Я справочный помощник WGB. На этой версии сайта отвечаю по демонстрационной базе без подключения ИИ. Бронирование и передача заявок не подключены.' : 'Здравствуйте! Я ИИ-консультант WGB. Помогу с информацией об отеле и предварительным расчётом.',
     isWaiting: false,
     messagesCount: 0
   };
@@ -70,7 +97,7 @@
           </div>
           <div class="wgb-chat-header-text">
             <h3>Виртуальный консультант WGB</h3>
-            <p>Онлайн · Отвечает мгновенно</p>
+            <p id="wgb-agent-mode">Проверяем подключение…</p>
           </div>
         </div>
         <div class="wgb-chat-header-actions">
@@ -86,7 +113,7 @@
 
       <div class="wgb-chat-footer">
         <div class="wgb-chat-input-row">
-          <textarea
+          <textarea maxlength="8000"
             class="wgb-chat-textarea"
             id="wgb-chat-input"
             rows="1"
@@ -100,7 +127,7 @@
           </button>
         </div>
         <div class="wgb-chat-disclaimer">
-          Нажимая отправить, вы соглашаетесь на обработку персональных данных
+          Не указывайте платёжные и паспортные данные в чате
         </div>
       </div>
     `;
@@ -123,6 +150,7 @@
     chatWidget.querySelector('#wgb-minimize-btn').addEventListener('click', () => setChatOpen(false));
 
     chatWidget.querySelector('#wgb-call-manager-btn').addEventListener('click', () => {
+      if (staticDemo) { appendMessageUI('bot', 'На этой версии сайта отправка заявок не подключена. Контакты не собираются.'); return; }
       showLeadFormCard('Связь с менеджером отеля');
     });
 
@@ -161,8 +189,8 @@
   // Загрузка сохраненной истории или приветствия
   async function loadHistoryOrWelcome() {
     try {
-      const res = await fetch(`/api/chat/history/${sessionId}`);
-      const data = await res.json();
+      if (staticDemo) throw new Error('Reference mode');
+      const data = await requestJson(`/chat/history/${sessionId}`);
 
       if (data.messages && data.messages.length > 0) {
         data.messages.forEach(m => {
@@ -283,7 +311,7 @@
       </div>
       <div class="wgb-calc-action">
         <button type="button" class="wgb-calc-btn outline" id="wgb-apply-calc-btn">В калькулятор сайта</button>
-        <button type="button" class="wgb-calc-btn" id="wgb-book-calc-btn">Оформить бронь</button>
+        <button type="button" class="wgb-calc-btn" id="wgb-book-calc-btn">Запросить условия</button>
       </div>
     `;
 
@@ -336,6 +364,7 @@
       <input type="email" id="wgb-lead-email" placeholder="Email (необязательно)">
       <input type="text" id="wgb-lead-company" placeholder="Компания (если корпоративная поездка)">
       <textarea id="wgb-lead-wishes" rows="2" placeholder="Пожелания, ранний заезд, документы..."></textarea>
+      <label style="font-size:12px;display:flex;gap:8px"><input type="checkbox" class="wgb-lead-consent" style="width:auto">Согласен на обработку указанных контактов и передачу менеджеру WGB для ответа на обращение.</label>
       <button type="button" class="wgb-lead-submit-btn" id="wgb-submit-lead-btn">Отправить заявку менеджеру</button>
     `;
 
@@ -346,6 +375,7 @@
       const company = card.querySelector('#wgb-lead-company').value.trim();
       const wishes = card.querySelector('#wgb-lead-wishes').value.trim();
 
+      if (!card.querySelector('.wgb-lead-consent').checked) { alert('Подтвердите согласие на обработку и передачу контактов.'); return; }
       if (!name || !phone) {
         alert('Пожалуйста, укажите имя и номер телефона');
         return;
@@ -358,6 +388,7 @@
       try {
         const payload = {
           sessionId,
+          consentConfirmed: true,
           name,
           phone,
           email,
@@ -369,18 +400,17 @@
           summary: `Заявка от ${name} (${phone}), ${calcData ? 'с расчетом поездки' : 'обращение к менеджеру'}`
         };
 
-        const res = await fetch('/api/lead', {
+        const data = await requestJson('/lead', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
 
-        const data = await res.json();
-        if (res.ok && data.success) {
+        if (data.success) {
           card.innerHTML = `
             <div style="color:var(--wgb-green); font-weight:600; text-align:center; padding:10px 0;">
               ✅ Заявка №${data.lead.id.slice(-6)} принята!<br>
-              <small style="font-weight:400; color:var(--wgb-muted);">Менеджер отеля WGB свяжется с вами по номеру ${phone}.</small>
+              <small style="font-weight:400; color:var(--wgb-muted);">Менеджер отеля WGB свяжется с вами по указанным контактам.</small>
             </div>
           `;
         } else {
@@ -399,6 +429,7 @@
   }
 
   function showLeadFormCard(title, calcData = null) {
+    if (staticDemo) { appendMessageUI('bot', 'Отправка заявок в справочном режиме не подключена. Контакты не собираются.'); return; }
     const card = createLeadFormCard(title, calcData);
     const wrap = document.createElement('div');
     wrap.className = 'wgb-chat-msg bot';
@@ -441,6 +472,8 @@
 
   async function sendMessage(text) {
     if (widgetState.isWaiting) return;
+    try { window.WgbAssistantPolicy.validateMessage(text); }
+    catch(error) { appendMessageUI('bot', error.message); return; }
 
     appendMessageUI('user', text);
     widgetState.isWaiting = true;
@@ -448,7 +481,7 @@
     showTypingIndicator();
 
     try {
-      const response = await fetch('/api/chat', {
+      const data = staticDemo ? await referenceReply(text) : await requestJson('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -458,10 +491,12 @@
         })
       });
 
-      const data = await response.json();
       hideTypingIndicator();
+      if (!staticDemo && data.mode === 'fallback') {
+        chatWidget.querySelector('#wgb-agent-mode').textContent = 'Справочный режим · ИИ недоступен';
+      }
 
-      if (response.ok && data.reply) {
+      if (data.reply) {
         appendMessageUI('bot', data.reply, new Date(), {
           calculation: data.calculation,
           suggestedActions: data.suggestedActions,
@@ -474,7 +509,7 @@
       }
     } catch (err) {
       hideTypingIndicator();
-      appendMessageUI('bot', 'Не удалось соединиться с сервером. Пожалуйста, проверьте подключение к сети.', new Date(), {
+      appendMessageUI('bot', 'Сервис ассистента сейчас недоступен. Сообщение не обработано. ' + (err.name === 'TimeoutError' ? 'Сервер не ответил вовремя.' : err.message), new Date(), {
         quickActions: ['Связаться с менеджером']
       });
     } finally {
@@ -487,8 +522,12 @@
   // Проверка статуса агента на сервере
   async function checkAgentStatus() {
     try {
-      const res = await fetch('/api/agent/status');
-      const data = await res.json();
+      if (staticDemo) {
+        chatWidget.querySelector('#wgb-agent-mode').textContent = 'Справочный режим · демонстрационные данные';
+        return;
+      }
+      const data = await requestJson('/agent/status');
+      chatWidget.querySelector('#wgb-agent-mode').textContent = data.hasApiKey ? 'ИИ-консультант' : 'Справочный режим · ИИ не подключён';
       if (data.welcomeMessage) {
         widgetState.welcomeMessage = data.welcomeMessage;
       }
@@ -497,7 +536,7 @@
         launcherBtn.style.display = 'none';
       }
     } catch (e) {
-      // Игнорируем ошибку статуса, виджет продолжает работу
+      chatWidget.querySelector('#wgb-agent-mode').textContent = 'Сервис временно недоступен';
     }
   }
 

@@ -36,6 +36,12 @@ function requireAdminAuth(req, res, next) {
   next();
 }
 
+router.get('/pricing', requireAdminAuth, (req,res) => res.json(store.getPricing()));
+router.put('/pricing', requireAdminAuth, (req,res) => {
+  try { res.json({success: true, pricing: store.updatePricing(req.body)}); }
+  catch(error) { res.status(400).json({error: error.message}); }
+});
+
 /**
  * Вход в панель администратора
  */

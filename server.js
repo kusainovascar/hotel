@@ -10,7 +10,8 @@ const adminRoutes = require('./routes/admin');
 const store = require('./data/store');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const portFlag = process.argv.indexOf('--port');
+const PORT = Number(process.env.PORT || (portFlag >= 0 ? process.argv[portFlag + 1] : 3000));
 
 // Безопасность и парсинг тела запросов
 app.use(cors());
@@ -38,7 +39,10 @@ app.use('/api/admin', adminRoutes);
 app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
 
 // Статические файлы проекта (главный сайт, стили виджета, скрипты)
-app.use(express.static(__dirname));
+// Only public assets are served. Database, settings and source are never public.
+for (const filename of ['index.html','widget.js','widget.css','assistant-policy.js','pricing-sync.js','assistant-config.js','assistant-knowledge.json']) {
+  app.get('/' + filename, (req,res) => res.sendFile(path.join(__dirname, filename)));
+}
 
 // Прямой доступ к панели администратора
 app.get('/admin', (req, res) => {
