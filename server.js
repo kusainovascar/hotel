@@ -66,7 +66,7 @@ app.use((err, req, res, next) => {
 const server = app.listen(PORT, () => {
   const settings = store.getSettings();
   console.log('====================================================');
-  console.log(`🏨 Сервер отеля WGB с ИИ-агентом успешно запущен!`);
+  console.log(`🏨 hotel v.2 — сервер WGB с ИИ-агентом и базой данных запущен!`);
   console.log(`🌐 Сайт: http://localhost:${PORT}`);
   console.log(`⚙️  Панель управления: http://localhost:${PORT}/admin`);
   console.log(`🤖 Модель OpenAI: ${settings.model}`);

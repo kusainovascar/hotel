@@ -1,7 +1,7 @@
 {
-  "name": "wgb-hotel",
-  "version": "1.0.0",
-  "description": "WGB Hotel & Restaurant with AI Consultant Agent and OpenAI API Integration",
+  "name": "hotel-v2",
+  "version": "2.0.0",
+  "description": "hotel v.2 — сайт WGB, ИИ-консультант и база знаний",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
@@ -16,5 +16,6 @@
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "openai": "^4.85.4"
-  }
+  },
+  "displayName": "hotel v.2"
 }
