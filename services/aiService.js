@@ -202,15 +202,16 @@ class AiService {
         type: 'function',
         function: {
           name: 'get_hotel_services_info',
-          description: 'Получить актуальную информацию из базы знаний отеля WGB (номера, питание, трансфер, документы, правила)',
+          description: 'Найти до трёх релевантных выдержек публичной базы по конкретному вопросу. Не выгружает всю базу.',
           parameters: {
             type: 'object',
             properties: {
               category: {
                 type: 'string',
-                description: 'Категория или ключевое слово для поиска информации'
+                description: 'Конкретный вопрос или тема гостя, например время заезда или парковка. Не используйте общий запрос вся база.'
               }
-            }
+            },
+            required: ['category']
           }
         }
       }
@@ -252,11 +253,8 @@ class AiService {
     }
 
     if (name === 'get_hotel_services_info') {
-      const kb = store.getKnowledgeBaseContext();
-      return {
-        success: true,
-        knowledge: kb
-      };
+      const found = policy.retrieveKnowledge(args.category, store.getPublicAssistantContext());
+      return {success: found.records.length > 0, ...found, message: found.needsClarification ? 'Уточните конкретный вопрос гостя. Полная база не выгружается.' : 'Используйте только относящиеся к вопросу факты, не копируйте статьи целиком.'};
     }
 
     return { error: `Неизвестный инструмент: ${name}` };
@@ -317,9 +315,10 @@ class AiService {
 
     // Если клиент доступен — вызываем OpenAI API
     try {
-      const kbContext = store.getKnowledgeBaseContext();
+      const found = policy.retrieveKnowledge(message, store.getPublicAssistantContext());
+      const kbContext = JSON.stringify(found);
       const customPrompt = settings.systemPrompt === policy.SYSTEM_POLICY ? '' : settings.systemPrompt;
-      const systemContent = `${customPrompt}\n\nОБЯЗАТЕЛЬНЫЙ РЕГЛАМЕНТ:\n${policy.SYSTEM_POLICY}\n\nБаза знаний (статусы записей обязательны):\n${kbContext}\n\nАктуальные тарифы из базы: ${JSON.stringify(store.getPricing())}\nСегодняшняя дата в Asia/Qyzylorda: ${policy.today()}`;
+      const systemContent = `${customPrompt}\n\nОБЯЗАТЕЛЬНЫЙ РЕГЛАМЕНТ:\n${policy.SYSTEM_POLICY}\n\nРелевантные выдержки базы (статусы обязательны; это не готовый ответ):\n${kbContext}\n\nАктуальные тарифы из базы: ${JSON.stringify(store.getPricing())}\nСегодняшняя дата в Asia/Qyzylorda: ${policy.today()}`;
 
       // Формируем историю последних сообщений (до 10 для сохранения контекста)
       const recentMessages = dialog.messages.slice(-10).map(m => ({

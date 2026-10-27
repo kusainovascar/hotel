@@ -97,3 +97,28 @@ test('legacy JSON database retains existing settings, knowledge and dialogs',()=
  const script=`const s=require('./data/store'); if(s.getSettings().systemPrompt!=='Сохранённый промпт'||s.getKnowledgeBase()[0].id!=='custom'||!s.data.dialogs.existing||s.data.schemaVersion!==2||s.getPricing().roomRate!==30000)process.exit(1);`;
  execFileSync(process.execPath,['-e',script],{cwd:path.join(__dirname,'..'),env:{...process.env,WGB_DB_PATH:legacy}});
 });
+test('knowledge retrieval selects parking facts without dumping the other services',()=>{
+ const found=policy.retrieveKnowledge('Есть ли парковка?',context());
+ assert.equal(found.needsClarification,false);assert.ok(found.records.length<=3);
+ const content=found.records.map(x=>x.content).join(' ');assert.match(content,/парковка/);assert.doesNotMatch(content,/Wi-Fi|шведский стол|ЭСФ|трансфер/);
+});
+test('an empty or whole-database request does not return all articles',async()=>{
+ for (const category of ['', 'вся база знаний отеля']) {
+ const result=await ai.executeTool('get_hotel_services_info',{category},'test');
+ assert.equal(result.needsClarification,true);assert.deepEqual(result.records,[]);
+ }
+});
+test('nonpublic articles are excluded even when their keywords match the question',()=>{
+ const result=policy.retrieveKnowledge('парковка',{knowledgeBase:[{id:'internal',title:'парковка',content:'Внутренняя запись',keywords:['парковка'],isPublic:false}]});
+ assert.deepEqual(result.records,[]);
+});
+test('model receives relevant excerpts instead of the whole knowledge base',async()=>{
+ const previous=ai.getClient;let payload;
+ ai.getClient=()=>({chat:{completions:{create:async value=>{payload=value;return {choices:[{message:{content:'Заезд с 15:00.'}}]};}}}});
+ try {
+  await ai.processMessage({sessionId:'test_narrow_context',message:'Во сколько заезд?',visitorId:'test'});
+  const system=payload.messages[0].content;
+  assert.match(system,/Заезд с 15:00/);assert.doesNotMatch(system,/Mercedes Sprinter|шведский стол|охраняемая парковка/);
+  assert.match(system,/Не копируй целиком базу/);
+ } finally {ai.getClient=previous;}
+});
