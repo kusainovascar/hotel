@@ -8,7 +8,8 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test tests/*.test.js",
-    "export:knowledge": "node scripts/export-assistant-knowledge.js"
+    "export:knowledge": "node scripts/export-assistant-knowledge.js",
+    "sync:vector-store": "node scripts/sync-vector-store.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

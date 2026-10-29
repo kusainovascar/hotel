@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const store = require('../data/store');
 const aiService = require('../services/aiService');
 const crmService = require('../services/crmService');
+const vectorStoreService = require('../services/vectorStoreService');
 
 // Хранилище активных токенов сессий администраторов в памяти
 const activeTokens = new Set();
@@ -98,6 +99,7 @@ router.get('/config', requireAdminAuth, (req, res) => {
   const settings = store.getSettings();
   res.json({
     ...settings,
+    vectorStoreId: process.env.OPENAI_VECTOR_STORE_ID || settings.vectorStoreId || '',
     maskedApiKey: maskApiKey(settings.apiKey),
     hasKey: Boolean(settings.apiKey && settings.apiKey.trim().length > 5),
     // Сам ключ в открытом виде клиенту НЕ передается!
@@ -118,7 +120,8 @@ router.post('/config', requireAdminAuth, (req, res) => {
     welcomeMessage,
     systemPrompt,
     bitrixWebhookUrl,
-    dataRetentionDays
+    dataRetentionDays,
+    vectorStoreId
   } = req.body;
 
   const currentSettings = store.getSettings();
@@ -159,6 +162,11 @@ router.post('/config', requireAdminAuth, (req, res) => {
 
   if (dataRetentionDays !== undefined) {
     updates.dataRetentionDays = Math.max(1, Math.min(365, Number(dataRetentionDays) || 30));
+  }
+
+  if (typeof vectorStoreId === 'string' && vectorStoreId.trim()) {
+    updates.vectorStoreId = vectorStoreId.trim();
+    process.env.OPENAI_VECTOR_STORE_ID = vectorStoreId.trim();
   }
 
   const updated = store.updateSettings(updates);
@@ -310,6 +318,45 @@ router.post('/dialogs/purge', requireAdminAuth, (req, res) => {
  */
 router.get('/analytics', requireAdminAuth, (req, res) => {
   res.json(store.getAnalyticsSummary());
+});
+
+
+
+/**
+ * OpenAI Vector Store: статус
+ */
+router.get('/vector-store', requireAdminAuth, async (req, res) => {
+  const client = aiService.getClient();
+  const status = await vectorStoreService.getStatus(client);
+  res.json(status);
+});
+
+/**
+ * OpenAI Vector Store: запуск синхронизации публичных документов
+ */
+router.post('/vector-store/sync', requireAdminAuth, async (req, res) => {
+  const client = aiService.getClient();
+  if (!client) return res.status(400).json({ error: 'API-ключ OpenAI не настроен' });
+  try {
+    const result = await vectorStoreService.syncPublicKnowledge(client);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * OpenAI Vector Store: тестовый диагностический поиск
+ */
+router.post('/vector-store/test', requireAdminAuth, async (req, res) => {
+  const client = aiService.getClient();
+  if (!client) return res.status(400).json({ error: 'API-ключ OpenAI не настроен' });
+  try {
+    const result = await vectorStoreService.testSearch(client, req.body?.query);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

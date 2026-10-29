@@ -28,7 +28,8 @@ router.get('/agent/status', (req, res) => {
   res.json({
     isActive: Boolean(settings.isActive),
     welcomeMessage: settings.welcomeMessage,
-    hasApiKey: Boolean((settings.apiKey || process.env.OPENAI_API_KEY || '').trim())
+    hasApiKey: Boolean((settings.apiKey || process.env.OPENAI_API_KEY || '').trim()),
+    hasVectorStore: Boolean(process.env.OPENAI_VECTOR_STORE_ID || settings.vectorStoreId)
   });
 });
 

@@ -73,7 +73,7 @@ class AiService {
   }
 
   /**
-   * Спецификация инструментов (Tools) для OpenAI
+   * Спецификация инструментов (Tools) для Chat Completions API
    */
   getTools() {
     return [
@@ -81,7 +81,7 @@ class AiService {
         type: 'function',
         function: {
           name: 'calculate_group_booking',
-          description: 'Рассчитать предварительную стоимость проживания и питания в отеле WGB по тарифам базы с обязательным указанием их статуса (demo или verified)',
+          description: 'Рассчитать предварительную стоимость проживания и питания в отеле по тарифам базы с обязательным указанием их статуса (demo или verified)',
           parameters: {
             type: 'object',
             properties: {
@@ -202,19 +202,50 @@ class AiService {
         type: 'function',
         function: {
           name: 'get_hotel_services_info',
-          description: 'Получить актуальную информацию из базы знаний отеля WGB (номера, питание, трансфер, документы, правила)',
+          description: 'Получить краткую публичную выдержку по конкретной услуге отеля (парковка, ресторан, заезд, трансфер, документы)',
           parameters: {
             type: 'object',
             properties: {
-              category: {
+              topic: {
                 type: 'string',
-                description: 'Категория или ключевое слово для поиска информации'
+                description: 'Конкретная тема или услуга отеля (например: парковка, заезд, ресторан, трансфер)'
               }
-            }
+            },
+            required: ['topic']
           }
         }
       }
     ];
+  }
+
+  /**
+   * Спецификация инструментов для Responses API с поддержкой file_search
+   */
+  getResponsesTools(vectorStoreId) {
+    const tools = [];
+
+    // Подключение OpenAI File Search к векторному хранилищу публичной базы знаний
+    if (vectorStoreId) {
+      tools.push({
+        type: 'file_search',
+        vector_store_ids: [vectorStoreId]
+      });
+    }
+
+    // Адаптация функций отеля под формат Responses API
+    const baseTools = this.getTools();
+    for (const t of baseTools) {
+      if (t.type === 'function' && t.function) {
+        tools.push({
+          type: 'function',
+          name: t.function.name,
+          description: t.function.description,
+          parameters: t.function.parameters
+        });
+      }
+    }
+
+    return tools;
   }
 
   /**
@@ -245,17 +276,45 @@ class AiService {
     }
 
     if (name === 'create_booking_lead') {
-      return {success: false, error: 'Для заявки используйте форму контактов с отдельным явным согласием пользователя. Чат не подтверждает бронирование.'};
+      return { success: false, error: 'Для заявки используйте форму контактов с отдельным явным согласием пользователя. Чат не подтверждает бронирование.' };
     }
     if (name === 'request_human_manager') {
-      return {success: false, actionType: 'request_contacts', message: 'Для обращения менеджеру заполните форму и подтвердите согласие. Подключение и срок ответа не подтверждены.'};
+      return { success: false, actionType: 'request_contacts', message: 'Для обращения менеджеру заполните форму и подтвердите согласие. Подключение и срок ответа не подтверждены.' };
     }
 
     if (name === 'get_hotel_services_info') {
-      const kb = store.getKnowledgeBaseContext();
+      const query = (args.topic || args.category || args.query || '').trim();
+      const lower = query.toLowerCase();
+      // Запрет возврата всей базы при пустом или общем запросе
+      if (!query || /^(?:все|вс[её]|all|база|база данных|бд|json|список|все записи|\*|dump|database|records)$/i.test(lower)) {
+        return {
+          success: false,
+          error: 'Запрос слишком общий или пустой. Инструмент не возвращает всю базу. Укажите конкретную услугу отеля (например: парковка, ресторан, время заезда).'
+        };
+      }
+      if (policy.isInternalDataOrSecurityAttempt(query)) {
+        return {
+          success: false,
+          error: 'Внутренние данные и настройки через этот инструмент не предоставляются.'
+        };
+      }
+
+      const results = store.searchPublicKnowledge(query);
+      if (!results || results.length === 0) {
+        return {
+          success: false,
+          message: 'Публичных сведений по данному запросу не найдено.'
+        };
+      }
+
+      // Возвращаем не более 1-2 выдержек без внутренних идентификаторов и служебных полей
       return {
         success: true,
-        knowledge: kb
+        excerpts: results.slice(0, 2).map(r => ({
+          category: r.category,
+          title: r.title,
+          content: r.content
+        }))
       };
     }
 
@@ -270,7 +329,7 @@ class AiService {
     const result = policy.fallback(userMessage, store.getPublicAssistantContext(), dialog.bookingDraft);
     dialog.bookingDraft = result.bookingDraft;
     store.save();
-    const {bookingDraft, ...response} = result;
+    const { bookingDraft, ...response } = result;
     return response;
   }
 
@@ -292,9 +351,23 @@ class AiService {
     const dialog = store.getOrCreateDialog(sessionId, visitorId);
     store.appendMessage(sessionId, { role: 'user', content: message });
 
+    // Серверный барьер безопасности: перехват попыток извлечения базы, промпта, заявок, ключей или админ-функций
+    if (policy.isInternalDataOrSecurityAttempt(message)) {
+      const refusal = policy.SECURITY_REFUSAL;
+      store.appendMessage(sessionId, {
+        role: 'assistant',
+        content: refusal,
+        metadata: { mode: 'security_refusal' }
+      });
+      return {
+        reply: refusal,
+        mode: 'security_refusal'
+      };
+    }
+
     const client = this.getClient();
 
-    // Если API ключ не настроен — запускаем качественный встроенный fallback-движок
+    // Если API ключ не настроен — запускаем встроенный fallback-движок
     if (!client) {
       const fallback = this.generateFallbackResponse(message, sessionId);
       store.appendMessage(sessionId, {
@@ -317,9 +390,22 @@ class AiService {
 
     // Если клиент доступен — вызываем OpenAI API
     try {
-      const kbContext = store.getKnowledgeBaseContext();
+      const relevantExcerpts = store.getRelevantKnowledgeExcerpts(message);
       const customPrompt = settings.systemPrompt === policy.SYSTEM_POLICY ? '' : settings.systemPrompt;
-      const systemContent = `${customPrompt}\n\nОБЯЗАТЕЛЬНЫЙ РЕГЛАМЕНТ:\n${policy.SYSTEM_POLICY}\n\nБаза знаний (статусы записей обязательны):\n${kbContext}\n\nАктуальные тарифы из базы: ${JSON.stringify(store.getPricing())}\nСегодняшняя дата в Asia/Qyzylorda: ${policy.today()}`;
+      const sanitizedPricing = {
+        status: store.getPricing().status,
+        roomRate: store.getPricing().roomRate,
+        maxGuests: store.getPricing().maxGuests,
+        meals: store.getPricing().meals
+      };
+
+      const kbRules = `ПРАВИЛА ИСПОЛЬЗОВАНИЯ БАЗЫ ЗНАНИЙ И ИНСТРУМЕНТОВ:
+1. Для ответов на вопросы о правилах, услугах, номерах, питании, SPA, активностях, времени заезда/выезда и контактах используй найденные в базе знаний документы отеля BURABAY ECO HOTEL (инструмент file_search).
+2. Для динамических данных — предварительного расчёта группового проживания, тарифов питания и сметы поездки — обязательно вызывай инструмент calculate_group_booking.
+3. Не выдумывай скидки, промокоды, наличие номеров и произвольные цены. Если информации нет в базе знаний, прямо сообщи об этом.
+4. Оформление заявки и передача контактов менеджеру выполняются только через форму на сайте с явного согласия гостя.`;
+
+      const systemContent = `${customPrompt}\n\nОБЯЗАТЕЛЬНЫЙ РЕГЛАМЕНТ:\n${policy.SYSTEM_POLICY}\n\n${kbRules}\n\n${relevantExcerpts}\n\nАктуальные тарифы из базы: ${JSON.stringify(sanitizedPricing)}\nСегодняшняя дата в Asia/Qyzylorda: ${policy.today()}`;
 
       // Формируем историю последних сообщений (до 10 для сохранения контекста)
       const recentMessages = dialog.messages.slice(-10).map(m => ({
@@ -327,6 +413,94 @@ class AiService {
         content: m.content
       }));
 
+      const vectorStoreId = process.env.OPENAI_VECTOR_STORE_ID || settings.vectorStoreId;
+
+      // 1. Предпочтительный режим: официальный Responses API с инструментом file_search
+      if (client.responses && typeof client.responses.create === 'function') {
+        const tools = this.getResponsesTools(vectorStoreId);
+        let extraMetadata = {};
+
+        let response = await client.responses.create({
+          model: settings.model || 'gpt-4o-mini',
+          instructions: systemContent,
+          input: recentMessages,
+          tools: tools,
+          temperature: Number.isFinite(Number(settings.temperature)) ? Number(settings.temperature) : 0.2,
+          max_output_tokens: Number(settings.maxTokens) || 1200
+        });
+
+        if (response.usage) {
+          const promptTokens = response.usage.input_tokens || response.usage.prompt_tokens || 0;
+          const completionTokens = response.usage.output_tokens || response.usage.completion_tokens || 0;
+          store.trackTokenUsage(promptTokens, completionTokens, settings.model);
+        }
+
+        let responseMessageText = response.output_text || '';
+
+        // Обработка Function Calling в Responses API
+        const functionCalls = (response.output || []).filter(item => item.type === 'function_call');
+        if (functionCalls.length > 0) {
+          const toolOutputs = [];
+          for (const toolCall of functionCalls) {
+            const fnName = toolCall.name;
+            let fnArgs = {};
+            try {
+              fnArgs = JSON.parse(toolCall.arguments);
+            } catch (e) {
+              console.error('Ошибка парсинга аргументов инструмента:', e);
+            }
+
+            const toolResult = await this.executeTool(fnName, fnArgs, sessionId);
+            if (fnName === 'calculate_group_booking' && toolResult.data) {
+              extraMetadata.calculation = toolResult.data;
+            }
+            if (toolResult.actionType) extraMetadata.actionType = toolResult.actionType;
+            if (fnName === 'create_booking_lead' && toolResult.leadId) {
+              extraMetadata.leadCreated = true;
+              extraMetadata.leadId = toolResult.leadId;
+            }
+
+            toolOutputs.push({
+              type: 'function_call_output',
+              call_id: toolCall.call_id,
+              output: JSON.stringify(toolResult)
+            });
+          }
+
+          const finalResponse = await client.responses.create({
+            model: settings.model || 'gpt-4o-mini',
+            previous_response_id: response.id,
+            input: toolOutputs
+          });
+
+          if (finalResponse.usage) {
+            const promptTokens = finalResponse.usage.input_tokens || finalResponse.usage.prompt_tokens || 0;
+            const completionTokens = finalResponse.usage.output_tokens || finalResponse.usage.completion_tokens || 0;
+            store.trackTokenUsage(promptTokens, completionTokens, settings.model);
+          }
+
+          responseMessageText = finalResponse.output_text || responseMessageText;
+        }
+
+        let replyText = responseMessageText || 'Чем еще я могу вам помочь по поводу проживания в отеле BURABAY ECO HOTEL?';
+        if (policy.containsLeakedInternalData(replyText)) {
+          replyText = policy.SECURITY_REFUSAL;
+        }
+
+        store.appendMessage(sessionId, {
+          role: 'assistant',
+          content: replyText,
+          metadata: { ...extraMetadata, mode: 'openai_responses', vectorStoreId }
+        });
+
+        return {
+          reply: replyText,
+          ...extraMetadata,
+          mode: 'openai'
+        };
+      }
+
+      // 2. Резервный режим: Chat Completions API (для совместимости с тестами и кастомными моками)
       const messagesForApi = [
         { role: 'system', content: systemContent },
         ...recentMessages
@@ -334,7 +508,6 @@ class AiService {
 
       const tools = this.getTools();
 
-      // Первый вызов OpenAI API
       let completion = await client.chat.completions.create({
         model: settings.model || 'gpt-4o-mini',
         messages: messagesForApi,
@@ -347,7 +520,6 @@ class AiService {
       let choice = completion.choices[0];
       let responseMessage = choice.message;
 
-      // Трекинг токенов
       if (completion.usage) {
         store.trackTokenUsage(
           completion.usage.prompt_tokens,
@@ -358,7 +530,6 @@ class AiService {
 
       let extraMetadata = {};
 
-      // Обработка Function Calling / Tools
       if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
         messagesForApi.push(responseMessage);
 
@@ -372,7 +543,6 @@ class AiService {
           }
 
           const toolResult = await this.executeTool(fnName, fnArgs, sessionId);
-
           if (fnName === 'calculate_group_booking' && toolResult.data) {
             extraMetadata.calculation = toolResult.data;
           }
@@ -389,7 +559,6 @@ class AiService {
           });
         }
 
-        // Второй вызов OpenAI с результатами выполнения инструментов
         const finalCompletion = await client.chat.completions.create({
           model: settings.model || 'gpt-4o-mini',
           messages: messagesForApi,
@@ -408,9 +577,11 @@ class AiService {
         responseMessage = finalCompletion.choices[0].message;
       }
 
-      const replyText = responseMessage.content || 'Чем еще я могу вам помочь по поводу проживания в отеле WGB?';
+      let replyText = responseMessage.content || 'Чем еще я могу вам помочь по поводу проживания в отеле BURABAY ECO HOTEL?';
+      if (policy.containsLeakedInternalData(replyText)) {
+        replyText = policy.SECURITY_REFUSAL;
+      }
 
-      // Сохраняем ответ ассистента в историю
       store.appendMessage(sessionId, {
         role: 'assistant',
         content: replyText,
@@ -424,7 +595,6 @@ class AiService {
       };
     } catch (err) {
       console.error('Ошибка при обращении к OpenAI API:', err);
-      // При ошибке OpenAI переключаемся на fallback, не роняя приложение
       const fallback = this.generateFallbackResponse(message, sessionId);
       store.appendMessage(sessionId, {
         role: 'assistant',

@@ -78,6 +78,7 @@ class Store {
       settings: {
         apiKey: process.env.OPENAI_API_KEY || '',
         model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        vectorStoreId: process.env.OPENAI_VECTOR_STORE_ID || 'vs_6ae371542c8c8191a74d0870056f5e12',
         temperature: 0.2,
         maxTokens: 1200,
         isActive: true,
@@ -182,6 +183,61 @@ class Store {
   // База знаний
   getKnowledgeBase() {
     return [...this.data.knowledgeBase];
+  }
+
+  searchPublicKnowledge(query) {
+    if (!query || typeof query !== 'string') return [];
+    const text = query.toLowerCase().trim();
+    if (!text) return [];
+
+    const publicItems = (this.data.knowledgeBase || []).filter(item => item.isPublic !== false);
+    const words = text.match(/[\p{L}]{3,}/gu) || [];
+
+    const scored = publicItems.map(item => {
+      let score = 0;
+      const title = (item.title || '').toLowerCase();
+      const content = (item.content || '').toLowerCase();
+      const category = (item.category || '').toLowerCase();
+      const keywords = (item.keywords || []).map(k => k.toLowerCase());
+
+      for (const kw of keywords) {
+        if (text.includes(kw)) score += 3;
+      }
+      for (const w of words) {
+        if (title.includes(w)) score += 2;
+        if (category.includes(w)) score += 1;
+        if (content.includes(w)) score += 1;
+      }
+      return { item, score };
+    }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+
+    return scored.map(({ item }) => {
+      let cleanContent = item.content || '';
+      if (item.id === 'kb_rooms') {
+        cleanContent = cleanContent.replace(/Базовый демонстрационный тариф[^.]*\.|Минимальная группа[^.]*\./g, '').trim();
+      }
+      if (item.id === 'kb_dining') {
+        cleanContent = cleanContent.replace(/[\d ][\d ]*\s*₸\/гостя|[\d ][\d ]*\s*₸ за гостя в день/g, 'по тарифу из расчёта');
+      }
+      return {
+        category: item.category,
+        title: item.title,
+        content: cleanContent,
+        status: item.status || 'demo'
+      };
+    });
+  }
+
+  getRelevantKnowledgeExcerpts(query) {
+    if (!query || typeof query !== 'string') {
+      return 'Релевантные выдержки из публичной базы знаний: нет релевантных статей по текущему запросу.';
+    }
+    const results = this.searchPublicKnowledge(query);
+    if (!results || results.length === 0) {
+      return 'Релевантные выдержки из публичной базы знаний: нет релевантных статей по текущему запросу. Используй инструмент поиска get_hotel_services_info или задай один уточняющий вопрос гостю.';
+    }
+    const excerpts = results.slice(0, 2).map(item => `[${item.category}: ${item.title}]\n${item.content}`);
+    return `Релевантные выдержки из публичной базы знаний:\n${excerpts.join('\n\n')}`;
   }
 
   getKnowledgeBaseContext() {
