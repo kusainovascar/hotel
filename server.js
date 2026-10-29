@@ -40,7 +40,7 @@ app.use('/admin', express.static(path.join(__dirname, 'public', 'admin')));
 
 // Статические файлы проекта (главный сайт, стили виджета, скрипты)
 // Only public assets are served. Database, settings and source are never public.
-for (const filename of ['index.html','widget.js','widget.css','assistant-policy.js','pricing-sync.js','assistant-config.js','assistant-knowledge.json']) {
+for (const filename of ['index.html','wgb-logo.webp','widget.js','widget.css','assistant-policy.js','pricing-sync.js','assistant-config.js','assistant-knowledge.json']) {
   app.get('/' + filename, (req,res) => res.sendFile(path.join(__dirname, filename)));
 }
 
