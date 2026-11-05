@@ -355,13 +355,47 @@
 
       <!-- Вкладка 4: База знаний -->
       <section id="tab-kb" class="tab-pane">
-        <div class="card">
-          <div class="card-header-flex">
+        <!-- Блок синхронизации с OpenAI Vector Store -->
+        <div class="card mb-20" id="kb-sync-card" style="background:#f4f7f2; border-left: 4px solid var(--green); margin-bottom: 20px;">
+          <div class="card-header-flex" style="flex-wrap: wrap; gap: 12px; align-items: center;">
             <div>
-              <h3>База знаний отеля WGB</h3>
-              <p class="card-desc">ИИ-консультант черпает проверенные факты, цены и правила из этих статей</p>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 18px;">🔄</span>
+                <h3 style="margin:0; font-size: 16px;">Управление знаниями и OpenAI Vector Store</h3>
+                <span class="badge" id="kb-sync-status-badge">Загрузка...</span>
+              </div>
+              <p class="text-muted" style="margin: 4px 0 0; font-size: 12px;" id="kb-sync-meta">
+                Активный Vector Store: <code id="kb-active-vs-id">—</code> · Синхронизация: <span id="kb-last-sync-time">—</span>
+              </p>
             </div>
-            <button class="btn btn-primary btn-sm" id="new-kb-btn">+ Добавить статью</button>
+            <div class="btn-group" style="gap: 8px;">
+              <button class="btn btn-secondary btn-sm" id="kb-rollback-btn" style="display:none;" title="Откатить к предыдущей версии хранилища">↩️ Откатить Vector Store</button>
+              <button class="btn btn-primary btn-sm" id="kb-sync-btn">⚡ Синхронизировать с OpenAI</button>
+            </div>
+          </div>
+          <div id="kb-sync-error" class="alert-box error mt-16" style="display:none; margin-top: 12px;"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header-flex" style="flex-wrap: wrap; gap: 12px; align-items: center;">
+            <div>
+              <h3>Единая база знаний отеля WGB</h3>
+              <p class="card-desc">Все публичные знания, правила и тарифы. В ИИ попадают только опубликованные статьи.</p>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+              <select id="kb-filter-status" style="padding: 6px 10px; font-size: 12px; border-radius: 4px; border: 1px solid var(--line); background: white;">
+                <option value="all">Все статусы</option>
+                <option value="published">Опубликованные</option>
+                <option value="draft">Черновики</option>
+              </select>
+              <select id="kb-filter-lang" style="padding: 6px 10px; font-size: 12px; border-radius: 4px; border: 1px solid var(--line); background: white;">
+                <option value="all">Все языки</option>
+                <option value="ru">Русский (ru)</option>
+                <option value="en">English (en)</option>
+                <option value="kk">Қазақша (kk)</option>
+              </select>
+              <button class="btn btn-primary btn-sm" id="new-kb-btn">+ Добавить статью</button>
+            </div>
           </div>
 
           <!-- Список статей -->
@@ -379,19 +413,29 @@
             </div>
             <form id="kb-form">
               <input type="hidden" id="kb-id">
-              <div class="form-group">
-                <label for="kb-category">Категория</label>
-                <input type="text" id="kb-category" list="category-suggestions" placeholder="Например: Номера и тарифы" required>
-                <datalist id="category-suggestions">
-                  <option value="Отель и расположение">
-                  <option value="Номера и тарифы">
-                  <option value="Правила проживания">
-                  <option value="Ресторан и питание">
-                  <option value="Деловые поездки">
-                  <option value="Групповые бронирования">
-                  <option value="Дополнительные услуги">
-                  <option value="Удобства и сервисы">
-                </datalist>
+              <div class="form-row">
+                <div class="form-group" style="flex: 2;">
+                  <label for="kb-category">Категория</label>
+                  <input type="text" id="kb-category" list="category-suggestions" placeholder="Например: Номера и тарифы" required>
+                  <datalist id="category-suggestions">
+                    <option value="Отель и расположение">
+                    <option value="Номера и тарифы">
+                    <option value="Правила проживания">
+                    <option value="Ресторан и питание">
+                    <option value="Деловые поездки">
+                    <option value="Групповые бронирования">
+                    <option value="Дополнительные услуги">
+                    <option value="Удобства и сервисы">
+                  </datalist>
+                </div>
+                <div class="form-group" style="flex: 1;">
+                  <label for="kb-lang">Язык</label>
+                  <select id="kb-lang" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid var(--line);">
+                    <option value="ru">Русский (ru)</option>
+                    <option value="en">English (en)</option>
+                    <option value="kk">Қазақша (kk)</option>
+                  </select>
+                </div>
               </div>
 
               <div class="form-group">
@@ -409,11 +453,41 @@
                 <input type="text" id="kb-keywords" placeholder="заезд, выезд, часы, правила">
               </div>
 
-              <div class="modal-footer">
+              <div class="form-group">
+                <label for="kb-status">Статус публикации</label>
+                <select id="kb-status" style="width: 100%; padding: 8px; border-radius: 4px; border: 1px solid var(--line);">
+                  <option value="published">Опубликовано (доступно ИИ и поиску)</option>
+                  <option value="draft">Черновик (не передается ИИ до публикации)</option>
+                </select>
+              </div>
+
+              <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
                 <button type="button" class="btn btn-secondary" id="cancel-kb-btn">Отмена</button>
-                <button type="submit" class="btn btn-primary" id="save-kb-btn">Сохранить статью</button>
+                <div style="display: flex; gap: 8px;">
+                  <button type="button" class="btn btn-secondary" id="save-kb-draft-btn">💾 Сохранить черновик</button>
+                  <button type="submit" class="btn btn-primary" id="save-kb-btn">📢 Опубликовать</button>
+                </div>
               </div>
             </form>
+          </div>
+        </dialog>
+
+        <!-- Модальное окно истории версий статьи -->
+        <dialog id="kb-history-modal" class="modal-dialog" style="max-width: 600px;">
+          <div class="modal-content">
+            <div class="modal-header">
+              <div>
+                <h3 id="kb-history-modal-title">История изменений статьи</h3>
+                <small class="text-muted" id="kb-history-modal-subtitle"></small>
+              </div>
+              <button type="button" class="modal-close" id="close-kb-history-modal">×</button>
+            </div>
+            <div id="kb-history-list" style="max-height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 12px 0;">
+              <div class="text-muted text-center">Загрузка истории...</div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-secondary" id="close-kb-history-btn">Закрыть</button>
+            </div>
           </div>
         </dialog>
       </section>

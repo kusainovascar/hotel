@@ -66,6 +66,26 @@ const DEFAULT_KNOWLEDGE_BASE = [
   }
 ];
 
+function normalizeArticle(item) {
+  const isDraft = item.status === 'draft';
+  const verificationStatus = item.verificationStatus || (['demo', 'verified'].includes(item.status) ? item.status : 'demo');
+  const status = isDraft ? 'draft' : 'published';
+  return {
+    id: item.id || `kb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    title: item.title || 'Без названия',
+    category: item.category || 'Общее',
+    content: item.content || '',
+    lang: item.lang || 'ru',
+    status: status,
+    verificationStatus: verificationStatus,
+    version: Number.isInteger(item.version) && item.version > 0 ? item.version : 1,
+    updatedAt: item.updatedAt || new Date().toISOString(),
+    keywords: Array.isArray(item.keywords) ? item.keywords : [],
+    history: Array.isArray(item.history) ? item.history : [],
+    isPublic: item.isPublic !== false
+  };
+}
+
 class Store {
   constructor() {
     this.data = this.load();
@@ -87,7 +107,16 @@ class Store {
         bitrixWebhookUrl: process.env.BITRIX24_WEBHOOK_URL || '',
         dataRetentionDays: Number(process.env.DATA_RETENTION_DAYS) || 30
       },
-      knowledgeBase: DEFAULT_KNOWLEDGE_BASE.map(item => ({...item, status: 'demo', isPublic: true})),
+      syncStatus: {
+        lastSyncAt: null,
+        status: 'idle',
+        lastError: null,
+        activeVectorStoreId: process.env.OPENAI_VECTOR_STORE_ID || 'vs_6ae371542c8c8191a74d0870056f5e12',
+        previousVectorStoreId: null,
+        indexedFilesCount: 0,
+        history: []
+      },
+      knowledgeBase: DEFAULT_KNOWLEDGE_BASE.map(item => normalizeArticle({...item, verificationStatus: 'demo', status: 'published'})),
       leads: [],
       dialogs: {},
       analytics: {
@@ -116,7 +145,10 @@ class Store {
           schemaVersion: 2,
           pricing: {...defaults.pricing, ...parsed.pricing, meals: {...defaults.pricing.meals, ...parsed.pricing?.meals}},
           settings: { ...defaults.settings, ...parsed.settings },
-          knowledgeBase: Array.isArray(parsed.knowledgeBase) && parsed.knowledgeBase.length > 0 ? parsed.knowledgeBase.map(item => ({status: 'demo', isPublic: true, ...item})) : defaults.knowledgeBase,
+          syncStatus: { ...defaults.syncStatus, ...(parsed.syncStatus || {}) },
+          knowledgeBase: Array.isArray(parsed.knowledgeBase) && parsed.knowledgeBase.length > 0
+            ? parsed.knowledgeBase.map(item => normalizeArticle(item))
+            : defaults.knowledgeBase,
           leads: Array.isArray(parsed.leads) ? parsed.leads : [],
           dialogs: parsed.dialogs || {},
           analytics: { ...defaults.analytics, ...parsed.analytics }
@@ -138,8 +170,13 @@ class Store {
         fs.mkdirSync(dir, { recursive: true });
       }
       const temporary = DB_PATH + '.tmp';
-      fs.writeFileSync(temporary, JSON.stringify(dataToSave, null, 2), {encoding: 'utf-8', mode: 0o600});
-      fs.renameSync(temporary, DB_PATH);
+      fs.writeFileSync(temporary, JSON.stringify(dataToSave, null, 2), {encoding: 'utf-8'});
+      try {
+        fs.renameSync(temporary, DB_PATH);
+      } catch (renameErr) {
+        fs.copyFileSync(temporary, DB_PATH);
+        try { fs.unlinkSync(temporary); } catch (_) {}
+      }
     } catch (err) {
       console.error('Ошибка записи database.json:', err.message);
       throw err;
@@ -160,12 +197,21 @@ class Store {
 
   getPublicAssistantContext() {
     const pricing = this.getPricing();
-    const knowledgeBase = this.data.knowledgeBase.filter(item => item.isPublic !== false).map(({id,category,title,content,keywords,status}) => {
-      // Legacy seed articles repeated prices. Structured pricing is authoritative.
-      if (id === 'kb_rooms') content = content.replace(/Базовый демонстрационный тариф[^.]*\.|Минимальная группа[^.]*\./g, '').trim();
-      if (id === 'kb_dining') content = content.replace(/[\d ][\d ]*\s*₸\/гостя|[\d ][\d ]*\s*₸ за гостя в день/g, 'по тарифу из расчёта');
-      return {id,category,title,content,keywords,status: status || 'demo'};
-    });
+    const knowledgeBase = this.data.knowledgeBase
+      .filter(item => item.isPublic !== false && item.status === 'published')
+      .map(({id,category,title,content,keywords,status,verificationStatus}) => {
+        // Legacy seed articles repeated prices. Structured pricing is authoritative.
+        if (id === 'kb_rooms') content = content.replace(/Базовый демонстрационный тариф[^.]*\.|Минимальная группа[^.]*\./g, '').trim();
+        if (id === 'kb_dining') content = content.replace(/[\d ][\d ]*\s*₸\/гостя|[\d ][\d ]*\s*₸ за гостя в день/g, 'по тарифу из расчёта');
+        return {
+          id,
+          category,
+          title,
+          content,
+          keywords,
+          status: verificationStatus || (status === 'verified' ? 'verified' : 'demo')
+        };
+      });
     return {pricing, knowledgeBase};
   }
 
@@ -180,7 +226,186 @@ class Store {
     return this.data.settings;
   }
 
-  // База знаний
+  // Статус синхронизации с OpenAI
+  getSyncStatus() {
+    return {
+      status: 'idle',
+      lastSyncAt: null,
+      lastError: null,
+      activeVectorStoreId: this.getSettings().vectorStoreId || null,
+      previousVectorStoreId: null,
+      indexedFilesCount: 0,
+      history: [],
+      ...(this.data.syncStatus || {})
+    };
+  }
+
+  updateSyncStatus(updates) {
+    this.data.syncStatus = {
+      ...this.getSyncStatus(),
+      ...updates
+    };
+    this.save();
+    return this.getSyncStatus();
+  }
+
+  // База знаний — Управление статьями
+  getArticles(filter = {}) {
+    let list = this.data.knowledgeBase;
+    if (filter.status) {
+      list = list.filter(a => a.status === filter.status);
+    }
+    if (filter.lang) {
+      list = list.filter(a => a.lang === filter.lang);
+    }
+    if (filter.category) {
+      list = list.filter(a => a.category === filter.category);
+    }
+    return JSON.parse(JSON.stringify(list));
+  }
+
+  getArticle(id) {
+    const found = this.data.knowledgeBase.find(a => a.id === id);
+    return found ? JSON.parse(JSON.stringify(found)) : null;
+  }
+
+  saveArticle(articleData) {
+    if (!articleData || typeof articleData !== 'object') {
+      throw new Error('Данные статьи обязательны.');
+    }
+    const title = (articleData.title || '').trim();
+    const content = (articleData.content || '').trim();
+    if (!title || !content) {
+      throw new Error('Заголовок и содержание статьи не могут быть пустыми.');
+    }
+
+    const category = (articleData.category || 'Общее').trim();
+    const lang = (articleData.lang || 'ru').trim().toLowerCase();
+    const status = articleData.status === 'draft' ? 'draft' : 'published';
+    const keywords = Array.isArray(articleData.keywords)
+      ? articleData.keywords
+      : (typeof articleData.keywords === 'string'
+          ? articleData.keywords.split(',').map(s => s.trim()).filter(Boolean)
+          : []);
+    const verificationStatus = articleData.verificationStatus || (articleData.status === 'verified' ? 'verified' : 'demo');
+
+    let existingIndex = -1;
+    if (articleData.id) {
+      existingIndex = this.data.knowledgeBase.findIndex(a => a.id === articleData.id);
+    }
+
+    let article;
+    if (existingIndex >= 0) {
+      const existing = this.data.knowledgeBase[existingIndex];
+      const history = Array.isArray(existing.history) ? [...existing.history] : [];
+      history.unshift({
+        version: existing.version || 1,
+        title: existing.title,
+        category: existing.category,
+        content: existing.content,
+        lang: existing.lang || 'ru',
+        status: existing.status,
+        verificationStatus: existing.verificationStatus || 'demo',
+        updatedAt: existing.updatedAt || new Date().toISOString(),
+        keywords: [...(existing.keywords || [])]
+      });
+      if (history.length > 20) {
+        history.length = 20;
+      }
+
+      const nextVersion = (existing.version || 1) + 1;
+      article = {
+        ...existing,
+        title,
+        category,
+        content,
+        lang,
+        status,
+        verificationStatus,
+        version: nextVersion,
+        keywords,
+        history,
+        updatedAt: new Date().toISOString()
+      };
+      this.data.knowledgeBase[existingIndex] = article;
+    } else {
+      const id = articleData.id || `kb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      article = {
+        id,
+        title,
+        category,
+        content,
+        lang,
+        status,
+        verificationStatus,
+        version: 1,
+        keywords,
+        history: [],
+        updatedAt: new Date().toISOString(),
+        isPublic: articleData.isPublic !== false
+      };
+      this.data.knowledgeBase.push(article);
+    }
+
+    this.save();
+    return JSON.parse(JSON.stringify(article));
+  }
+
+  publishArticle(id) {
+    const existing = this.data.knowledgeBase.find(a => a.id === id);
+    if (!existing) {
+      throw new Error(`Статья с ID "${id}" не найдена.`);
+    }
+    return this.saveArticle({
+      ...existing,
+      status: 'published'
+    });
+  }
+
+  unpublishArticle(id) {
+    const existing = this.data.knowledgeBase.find(a => a.id === id);
+    if (!existing) {
+      throw new Error(`Статья с ID "${id}" не найдена.`);
+    }
+    return this.saveArticle({
+      ...existing,
+      status: 'draft'
+    });
+  }
+
+  restoreArticleVersion(id, targetVersion) {
+    const existing = this.data.knowledgeBase.find(a => a.id === id);
+    if (!existing) {
+      throw new Error(`Статья с ID "${id}" не найдена.`);
+    }
+    const targetVer = Number(targetVersion);
+    const snapshot = (existing.history || []).find(h => h.version === targetVer);
+    if (!snapshot) {
+      throw new Error(`Версия ${targetVer} не найдена в истории изменений статьи.`);
+    }
+
+    return this.saveArticle({
+      ...existing,
+      title: snapshot.title,
+      category: snapshot.category,
+      content: snapshot.content,
+      lang: snapshot.lang || 'ru',
+      status: snapshot.status || 'draft',
+      keywords: snapshot.keywords || [],
+      verificationStatus: snapshot.verificationStatus || 'demo'
+    });
+  }
+
+  deleteArticle(id) {
+    const prevLength = this.data.knowledgeBase.length;
+    this.data.knowledgeBase = this.data.knowledgeBase.filter(i => i.id !== id);
+    if (this.data.knowledgeBase.length !== prevLength) {
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
   getKnowledgeBase() {
     return [...this.data.knowledgeBase];
   }
@@ -190,7 +415,8 @@ class Store {
     const text = query.toLowerCase().trim();
     if (!text) return [];
 
-    const publicItems = (this.data.knowledgeBase || []).filter(item => item.isPublic !== false);
+    const publicItems = (this.data.knowledgeBase || [])
+      .filter(item => item.isPublic !== false && item.status === 'published');
     const words = text.match(/[\p{L}]{3,}/gu) || [];
 
     const scored = publicItems.map(item => {
@@ -223,7 +449,7 @@ class Store {
         category: item.category,
         title: item.title,
         content: cleanContent,
-        status: item.status || 'demo'
+        status: item.verificationStatus || (item.status === 'verified' ? 'verified' : 'demo')
       };
     });
   }
@@ -247,29 +473,12 @@ class Store {
   }
 
   saveKnowledgeItem(item) {
-    const existingIndex = this.data.knowledgeBase.findIndex(i => i.id === item.id);
-    if (existingIndex >= 0) {
-      this.data.knowledgeBase[existingIndex] = { ...this.data.knowledgeBase[existingIndex], ...item };
-    } else {
-      const newItem = {
-        id: item.id || `kb_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        category: item.category || 'Общее',
-        title: item.title || 'Новая статья',
-        content: item.content || '',
-        status: item.status === 'verified' ? 'verified' : 'demo',
-        isPublic: item.isPublic !== false,
-        keywords: Array.isArray(item.keywords) ? item.keywords : []
-      };
-      this.data.knowledgeBase.push(newItem);
-    }
-    this.save();
+    this.saveArticle(item);
     return this.data.knowledgeBase;
   }
 
   deleteKnowledgeItem(id) {
-    this.data.knowledgeBase = this.data.knowledgeBase.filter(i => i.id !== id);
-    this.save();
-    return true;
+    return this.deleteArticle(id);
   }
 
   // Заявки клиентов (Leads)

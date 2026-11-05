@@ -205,14 +205,111 @@ router.post('/test-crm', requireAdminAuth, async (req, res) => {
 });
 
 /**
- * База знаний: список статей
+ * База знаний: список статей (новый единый API)
+ */
+router.get('/articles', requireAdminAuth, (req, res) => {
+  const { status, lang, category } = req.query;
+  const articles = store.getArticles({ status, lang, category });
+  res.json({ articles });
+});
+
+/**
+ * База знаний: отдельная статья с историей изменений
+ */
+router.get('/articles/:id', requireAdminAuth, (req, res) => {
+  const article = store.getArticle(req.params.id);
+  if (!article) {
+    return res.status(404).json({ error: 'Статья не найдена' });
+  }
+  res.json({ article });
+});
+
+/**
+ * База знаний: создание или обновление статьи (с поддержкой draft/published и истории)
+ */
+router.post('/articles', requireAdminAuth, (req, res) => {
+  try {
+    const { id, category, title, content, lang, status, keywords, verificationStatus } = req.body;
+    const article = store.saveArticle({
+      id,
+      category,
+      title,
+      content,
+      lang,
+      status,
+      keywords,
+      verificationStatus
+    });
+    res.json({ success: true, article });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * База знаний: быстрая публикация статьи
+ */
+router.post('/articles/:id/publish', requireAdminAuth, (req, res) => {
+  try {
+    const article = store.publishArticle(req.params.id);
+    res.json({ success: true, article });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * База знаний: снятие статьи с публикации (в черновик)
+ */
+router.post('/articles/:id/unpublish', requireAdminAuth, (req, res) => {
+  try {
+    const article = store.unpublishArticle(req.params.id);
+    res.json({ success: true, article });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * База знаний: восстановление предыдущей версии статьи из истории
+ */
+router.post('/articles/:id/restore', requireAdminAuth, (req, res) => {
+  try {
+    const { version } = req.body;
+    if (!version) {
+      return res.status(400).json({ error: 'Параметр version обязателен' });
+    }
+    const article = store.restoreArticleVersion(req.params.id, version);
+    res.json({ success: true, article, message: `Версия ${version} успешно восстановлена` });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * База знаний: удалить статью
+ */
+router.delete('/articles/:id', requireAdminAuth, (req, res) => {
+  const success = store.deleteArticle(req.params.id);
+  res.json({ success, articles: store.getArticles() });
+});
+
+/**
+ * Статус синхронизации OpenAI Vector Store
+ */
+router.get('/sync-status', requireAdminAuth, (req, res) => {
+  res.json(store.getSyncStatus());
+});
+
+/**
+ * База знаний: список статей (legacy)
  */
 router.get('/knowledge-base', requireAdminAuth, (req, res) => {
   res.json({ articles: store.getKnowledgeBase() });
 });
 
 /**
- * База знаний: создать или обновить статью
+ * База знаний: создать или обновить статью (legacy)
  */
 router.post('/knowledge-base', requireAdminAuth, (req, res) => {
   const { id, category, title, content, keywords } = req.body;
@@ -232,7 +329,7 @@ router.post('/knowledge-base', requireAdminAuth, (req, res) => {
 });
 
 /**
- * База знаний: удалить статью
+ * База знаний: удалить статью (legacy)
  */
 router.delete('/knowledge-base/:id', requireAdminAuth, (req, res) => {
   store.deleteKnowledgeItem(req.params.id);
@@ -332,16 +429,30 @@ router.get('/vector-store', requireAdminAuth, async (req, res) => {
 });
 
 /**
- * OpenAI Vector Store: запуск синхронизации публичных документов
+ * OpenAI Vector Store: запуск управляемой синхронизации опубликованных статей
  */
 router.post('/vector-store/sync', requireAdminAuth, async (req, res) => {
   const client = aiService.getClient();
   if (!client) return res.status(400).json({ error: 'API-ключ OpenAI не настроен' });
   try {
-    const result = await vectorStoreService.syncPublicKnowledge(client);
+    const result = await vectorStoreService.syncPublishedKnowledge(client);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * OpenAI Vector Store: откат к предыдущей версии хранилища
+ */
+router.post('/vector-store/rollback', requireAdminAuth, async (req, res) => {
+  const client = aiService.getClient();
+  if (!client) return res.status(400).json({ error: 'API-ключ OpenAI не настроен' });
+  try {
+    const result = await vectorStoreService.rollbackVectorStore(client);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

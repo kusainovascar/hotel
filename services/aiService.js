@@ -81,17 +81,21 @@ class AiService {
         type: 'function',
         function: {
           name: 'calculate_group_booking',
-          description: 'Рассчитать предварительную стоимость проживания и питания в отеле по тарифам базы с обязательным указанием их статуса (demo или verified)',
+          description: 'Рассчитать предварительную стоимость проживания и питания в отеле WGB. Поддерживает как конкретные даты (startDate, endDate), так и расчёт по количеству ночей (nightsCount) без фиксированных дат. Не включает трансфер в сумму.',
           parameters: {
             type: 'object',
             properties: {
               startDate: {
                 type: 'string',
-                description: 'Дата заезда в формате YYYY-MM-DD'
+                description: 'Дата заезда в формате YYYY-MM-DD. Передавай ТОЛЬКО если гость явно указал дату! Не выдумывай даты!'
               },
               endDate: {
                 type: 'string',
-                description: 'Дата выезда в формате YYYY-MM-DD'
+                description: 'Дата выезда в формате YYYY-MM-DD. Передавай ТОЛЬКО если гость явно указал дату! Не выдумывай даты!'
+              },
+              nightsCount: {
+                type: 'integer',
+                description: 'Количество ночей проживания (используй, если гость указал количество ночей, но не назвал календарные даты)'
               },
               guestsCount: {
                 type: 'integer',
@@ -109,14 +113,14 @@ class AiService {
               },
               transferNeeded: {
                 type: 'boolean',
-                description: 'Требуется ли трансфер для гостей'
+                description: 'Требуется ли трансфер для гостей (рассчитывается индивидуально администратором, в базовую смету не входит)'
               },
               wishes: {
                 type: 'string',
                 description: 'Особые пожелания или требования к размещению'
               }
             },
-            required: ['startDate', 'endDate', 'guestsCount', 'occupancyPerRoom', 'mealType']
+            required: ['guestsCount', 'occupancyPerRoom', 'mealType']
           }
         }
       },
@@ -255,8 +259,9 @@ class AiService {
     if (name === 'calculate_group_booking') {
       try {
         const result = calculateHotelTrip({
-          start: args.startDate,
-          end: args.endDate,
+          start: args.startDate || null,
+          end: args.endDate || null,
+          nights: args.nightsCount || null,
           guests: args.guestsCount,
           occupancy: args.occupancyPerRoom,
           mealKey: args.mealType,
@@ -265,10 +270,21 @@ class AiService {
 
         store.trackPopularService('Калькулятор проживания');
 
+        const datesDesc = result.isApproximateDates
+          ? `без фиксированных дат (расчёт на ${result.nights} ноч.)`
+          : `${result.start} — ${result.end} (${result.nights} ноч.)`;
+
+        const displayText = `${result.tariffStatus === 'verified' ? 'Предварительный' : 'Демонстрационный'} расчёт (${datesDesc}): ` +
+          `${result.rooms} ном. (${result.roomsBreakdown}). ` +
+          `Включено в смету: проживание ${result.roomCost.toLocaleString('ru-RU')} ₸, питание (${result.mealLabel}) ${result.mealCost.toLocaleString('ru-RU')} ₸. ` +
+          `ИТОГО: ${result.total.toLocaleString('ru-RU')} ₸ (${result.perPerson.toLocaleString('ru-RU')} ₸/чел). ` +
+          `Трансфер: ${result.transferStatus}. ` +
+          `Важно: наличие свободных номеров требует подтверждения у отеля. Рекомендуем оформить предварительную заявку менеджеру.`;
+
         return {
           success: true,
           data: result,
-          displayText: `${result.tariffStatus === 'verified' ? 'Предварительный' : 'Демонстрационный'} расчёт: ${result.nights} ноч., ${result.rooms} ном., общее проживание ${result.roomCost.toLocaleString('ru-RU')} ₸, питание ${result.mealCost.toLocaleString('ru-RU')} ₸. ИТОГО: ${result.total.toLocaleString('ru-RU')} ₸ (${result.perPerson.toLocaleString('ru-RU')} ₸/чел).`
+          displayText
         };
       } catch (err) {
         return { success: false, error: err.message };
@@ -400,9 +416,14 @@ class AiService {
       };
 
       const kbRules = `ПРАВИЛА ИСПОЛЬЗОВАНИЯ БАЗЫ ЗНАНИЙ И ИНСТРУМЕНТОВ:
-1. Для ответов на вопросы о правилах, услугах, номерах, питании, SPA, активностях, времени заезда/выезда и контактах используй найденные в базе знаний документы отеля BURABAY ECO HOTEL (инструмент file_search).
-2. Для динамических данных — предварительного расчёта группового проживания, тарифов питания и сметы поездки — обязательно вызывай инструмент calculate_group_booking.
-3. Не выдумывай скидки, промокоды, наличие номеров и произвольные цены. Если информации нет в базе знаний, прямо сообщи об этом.
+1. Для ответов на вопросы о правилах, услугах, номерах, питании, времени заезда/выезда и контактах используй проверенную базу знаний отеля WGB (инструмент file_search).
+2. ДЛЯ ГРУППОВЫХ БРОНИРОВАНИЙ:
+   - Для любого расчёта стоимости групп обязательно вызывай инструмент calculate_group_booking.
+   - ДАТЫ: НИКОГДА не выдумывай и не подставляй календарные даты заезда и выезда! Если гость назвал только количество ночей (например, 3 ночи), передавай nightsCount в calculate_group_booking и явно сообщай гостю, что расчёт ориентировочный без конкретных дат. Если гость не указал ни дат, ни количества ночей — сначала уточни даты заезда и выезда (YYYY-MM-DD) или количество ночей.
+   - РАССЕЛЕНИЕ: Обязательно поясняй количество номеров и распределение гостей (например, 25 гостей при двухместном расселении — 13 номеров: 12 двухместных и 1 с одноместным размещением).
+   - ТРАНСФЕР: Трансфер рассчитывается отдельно менеджером и НЕ входит в базовую стоимость проживания. Никогда не говори, что трансфер включён в сумму или бесплатен. Всегда разделяй: 1) включено в смету: проживание и питание; 2) рассчитывается индивидуально: трансфер.
+   - НАЛИЧИЕ И СЛЕДУЮЩИЙ ШАГ: Не утверждай наличие свободных номеров. Всегда сообщай, что расчёт предварительный, а наличие номеров требует подтверждения у отеля. Всегда предлагай следующий шаг — оформить предварительную заявку на сайте или связаться с менеджером для подтверждения наличия номеров.
+3. Не выдумывай скидки, категории номеров, промокоды, наличие номеров и произвольные цены. Если точных и подтверждённых сведений нет в опубликованной базе знаний отеля, прямо и доброжелательно сообщи об отсутствии подтверждённой информации и предложи связаться с администратором.
 4. Оформление заявки и передача контактов менеджеру выполняются только через форму на сайте с явного согласия гостя.`;
 
       const systemContent = `${customPrompt}\n\nОБЯЗАТЕЛЬНЫЙ РЕГЛАМЕНТ:\n${policy.SYSTEM_POLICY}\n\n${kbRules}\n\n${relevantExcerpts}\n\nАктуальные тарифы из базы: ${JSON.stringify(sanitizedPricing)}\nСегодняшняя дата в Asia/Qyzylorda: ${policy.today()}`;
@@ -482,7 +503,7 @@ class AiService {
           responseMessageText = finalResponse.output_text || responseMessageText;
         }
 
-        let replyText = responseMessageText || 'Чем еще я могу вам помочь по поводу проживания в отеле BURABAY ECO HOTEL?';
+        let replyText = responseMessageText || 'Чем еще я могу вам помочь по поводу проживания в отеле WGB?';
         if (policy.containsLeakedInternalData(replyText)) {
           replyText = policy.SECURITY_REFUSAL;
         }
@@ -577,7 +598,7 @@ class AiService {
         responseMessage = finalCompletion.choices[0].message;
       }
 
-      let replyText = responseMessage.content || 'Чем еще я могу вам помочь по поводу проживания в отеле BURABAY ECO HOTEL?';
+      let replyText = responseMessage.content || 'Чем еще я могу вам помочь по поводу проживания в отеле WGB?';
       if (policy.containsLeakedInternalData(replyText)) {
         replyText = policy.SECURITY_REFUSAL;
       }

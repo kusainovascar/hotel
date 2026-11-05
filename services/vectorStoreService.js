@@ -4,10 +4,232 @@ const fs = require('fs');
 const path = require('path');
 const store = require('../data/store');
 
-const VECTOR_STORE_NAME = 'hotel-public-knowledge';
-const PUBLIC_DOCS_DIR = path.join(__dirname, '..', 'knowledge-base', 'public');
+const PUBLISHED_DOCS_DIR = path.join(__dirname, '..', 'knowledge-base', 'published');
+const LEGACY_PUBLIC_DOCS_DIR = path.join(__dirname, '..', 'knowledge-base', 'public');
 
 class VectorStoreService {
+  /**
+   * Подготовка каталога и генерация актуальных Markdown-файлов из опубликованных статей
+   */
+  generatePublishedDocs() {
+    if (!fs.existsSync(PUBLISHED_DOCS_DIR)) {
+      fs.mkdirSync(PUBLISHED_DOCS_DIR, { recursive: true });
+    }
+
+    // Очищаем только ранее сгенерированные файлы в dedicated каталоге published
+    const existing = fs.readdirSync(PUBLISHED_DOCS_DIR);
+    for (const file of existing) {
+      if (file.endsWith('.md')) {
+        try {
+          fs.unlinkSync(path.join(PUBLISHED_DOCS_DIR, file));
+        } catch (_) {}
+      }
+    }
+
+    const generatedFiles = [];
+
+    // 1. Сводный документ по тарифам и стоимости номеров из единого источника
+    const pricing = store.getPricing();
+    const pricingContent = `# Официальные тарифы отеля WGB Hotel & Restaurant
+**Категория:** Номера и тарифы
+**Статус тарифов:** ${pricing.status === 'verified' ? 'Подтверждённый тариф' : 'Демонстрационный тариф (demo)'}
+
+- Базовый тариф за номер в сутки: ${pricing.roomRate.toLocaleString('ru-RU')} ₸
+- Максимальная вместимость для групп: до ${pricing.maxGuests} человек
+- Тарифы питания (за гостя в день):
+  - Без питания: ${pricing.meals?.none?.rate || 0} ₸
+  - Завтрак: ${pricing.meals?.breakfast?.rate || 4000} ₸
+  - Полупансион (завтрак + ужин): ${pricing.meals?.half?.rate || 10000} ₸
+  - Полный пансион (завтрак + обед + ужин): ${pricing.meals?.full?.rate || 15000} ₸
+`;
+    const pricingPath = path.join(PUBLISHED_DOCS_DIR, '00_wgb_tariffs.md');
+    fs.writeFileSync(pricingPath, pricingContent, 'utf-8');
+    generatedFiles.push(pricingPath);
+
+    // 2. Генерация документов из опубликованных статей (status === 'published')
+    const publishedArticles = store.getArticles({ status: 'published' });
+    for (const article of publishedArticles) {
+      const sanitizedId = String(article.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `${sanitizedId}.md`;
+      const fullPath = path.join(PUBLISHED_DOCS_DIR, filename);
+
+      const docContent = `# ${article.title}
+**Категория:** ${article.category}
+**Язык:** ${article.lang || 'ru'}
+**Версия документа:** v${article.version || 1}
+**Статус:** Официальные опубликованные сведения отеля WGB
+
+${article.content}
+`;
+      fs.writeFileSync(fullPath, docContent, 'utf-8');
+      generatedFiles.push(fullPath);
+    }
+
+    return generatedFiles;
+  }
+
+  /**
+   * Управляемая синхронизация опубликованных статей с созданием нового Vector Store,
+   * проверкой индексации и контрольным поиском перед переключением
+   */
+  async syncPublishedKnowledge(client) {
+    if (!client) {
+      throw new Error('OpenAI client не инициализирован. Проверьте API-ключ.');
+    }
+
+    store.updateSyncStatus({
+      status: 'in_progress',
+      lastError: null
+    });
+
+    try {
+      const generatedFiles = this.generatePublishedDocs();
+      if (generatedFiles.length === 0) {
+        throw new Error('Нет опубликованных статей для синхронизации.');
+      }
+
+      console.log(`[VectorStoreService] Старт безопасной синхронизации. Подготовлено документов: ${generatedFiles.length}`);
+
+      // 1. Создаем НОВЫЙ Vector Store перед любыми изменениями
+      const newVsName = `wgb-hotel-knowledge-${Date.now()}`;
+      const newVs = await client.vectorStores.create({
+        name: newVsName,
+        metadata: {
+          project: 'WGB Hotel & Restaurant',
+          version: '2.0',
+          documentsCount: String(generatedFiles.length),
+          environment: process.env.NODE_ENV || 'production'
+        }
+      });
+
+      console.log(`[VectorStoreService] Создан новый Vector Store: ${newVs.id} (${newVs.name})`);
+
+      // 2. Загружаем потоки всех опубликованных файлов и ждем завершения индексации
+      const fileStreams = generatedFiles.map(filePath => fs.createReadStream(filePath));
+      const fileBatch = await client.vectorStores.fileBatches.uploadAndPoll(newVs.id, {
+        files: fileStreams
+      });
+
+      console.log(`[VectorStoreService] Индексация завершена. Статус: ${fileBatch.status}`);
+
+      if (fileBatch.status !== 'completed') {
+        throw new Error(`Индексация в OpenAI завершилась со статусом "${fileBatch.status}".`);
+      }
+
+      // 3. Контрольный диагностический поиск перед переключением активного хранилища
+      console.log('[VectorStoreService] Выполнение контрольного поиска по новым данным...');
+      const verifyPrompt = 'Кратко перечисли категории номеров и услуги отеля WGB';
+      const verifyResponse = await client.responses.create({
+        model: store.getSettings().model || 'gpt-4o-mini',
+        tools: [{
+          type: 'file_search',
+          vector_store_ids: [newVs.id]
+        }],
+        input: verifyPrompt
+      });
+
+      const verificationSample = (verifyResponse.output_text || '').trim();
+      if (!verificationSample) {
+        throw new Error('Контрольный поиск по новому Vector Store не вернул ответа.');
+      }
+
+      console.log('[VectorStoreService] Контрольный поиск успешен! Образец ответа:', verificationSample.slice(0, 100));
+
+      // 4. Только после успешной проверки переключаем активный Vector Store
+      const currentActiveId = store.getSettings().vectorStoreId;
+      const previousId = (currentActiveId && currentActiveId !== newVs.id) ? currentActiveId : (store.getSyncStatus().previousVectorStoreId || null);
+
+      store.updateSettings({ vectorStoreId: newVs.id });
+      process.env.OPENAI_VECTOR_STORE_ID = newVs.id;
+
+      const history = Array.isArray(store.getSyncStatus().history) ? [...store.getSyncStatus().history] : [];
+      history.unshift({
+        vectorStoreId: newVs.id,
+        previousVectorStoreId: previousId,
+        timestamp: new Date().toISOString(),
+        indexedFilesCount: generatedFiles.length,
+        status: 'completed',
+        verificationSample: verificationSample.slice(0, 200)
+      });
+      if (history.length > 10) history.length = 10;
+
+      const updatedSyncStatus = store.updateSyncStatus({
+        status: 'success',
+        lastSyncAt: new Date().toISOString(),
+        lastError: null,
+        activeVectorStoreId: newVs.id,
+        previousVectorStoreId: previousId,
+        indexedFilesCount: generatedFiles.length,
+        history
+      });
+
+      return {
+        success: true,
+        vectorStoreId: newVs.id,
+        vectorStoreName: newVs.name,
+        previousVectorStoreId: previousId,
+        indexedFilesCount: generatedFiles.length,
+        verificationSample: verificationSample.slice(0, 200),
+        status: 'completed'
+      };
+    } catch (err) {
+      console.error('[VectorStoreService] Ошибка синхронизации:', err.message);
+      store.updateSyncStatus({
+        status: 'error',
+        lastError: err.message
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Откат к предыдущему сохраненному Vector Store
+   */
+  async rollbackVectorStore(client) {
+    if (!client) {
+      throw new Error('OpenAI client не настроен.');
+    }
+
+    const currentSync = store.getSyncStatus();
+    const previousId = currentSync.previousVectorStoreId;
+
+    if (!previousId) {
+      throw new Error('Предыдущий Vector Store не найден для отката.');
+    }
+
+    // Проверяем доступность хранилища в OpenAI
+    const retrieved = await client.vectorStores.retrieve(previousId);
+    if (!retrieved || !retrieved.id) {
+      throw new Error(`Хранилище ${previousId} недоступно в OpenAI.`);
+    }
+
+    const oldActive = store.getSettings().vectorStoreId;
+    store.updateSettings({ vectorStoreId: previousId });
+    process.env.OPENAI_VECTOR_STORE_ID = previousId;
+
+    store.updateSyncStatus({
+      activeVectorStoreId: previousId,
+      previousVectorStoreId: oldActive,
+      lastSyncAt: new Date().toISOString(),
+      lastError: null
+    });
+
+    console.log(`[VectorStoreService] Успешный откат Vector Store с ${oldActive} на ${previousId}`);
+
+    return {
+      success: true,
+      activeVectorStoreId: previousId,
+      message: `Успешный откат к Vector Store ${previousId}`
+    };
+  }
+
+  /**
+   * Алиас для обратной совместимости со старыми скриптами
+   */
+  async syncPublicKnowledge(client, options = {}) {
+    return this.syncPublishedKnowledge(client);
+  }
+
   /**
    * Найти существующий или создать новый Vector Store для отеля
    */
@@ -28,23 +250,11 @@ class VectorStoreService {
       }
     }
 
-    // Поиск по имени
-    try {
-      const list = await client.vectorStores.list({ limit: 50 });
-      const found = list.data.find(v => v.name === VECTOR_STORE_NAME);
-      if (found) {
-        this.saveVectorStoreId(found.id);
-        return found;
-      }
-    } catch (err) {
-      console.warn('Не удалось получить список Vector Stores:', err.message);
-    }
-
-    // Создание нового хранилища
+    // Создание нового хранилища с брендом WGB
     const created = await client.vectorStores.create({
-      name: VECTOR_STORE_NAME,
+      name: 'wgb-hotel-knowledge',
       metadata: {
-        project: 'BURABAY ECO HOTEL',
+        project: 'WGB Hotel & Restaurant',
         environment: process.env.NODE_ENV || 'production'
       }
     });
@@ -53,89 +263,15 @@ class VectorStoreService {
     return created;
   }
 
-  /**
-   * Сохранить идентификатор в настройках сервера
-   */
   saveVectorStoreId(vectorStoreId) {
     if (!vectorStoreId) return;
     process.env.OPENAI_VECTOR_STORE_ID = vectorStoreId;
     try {
       store.updateSettings({ vectorStoreId });
+      store.updateSyncStatus({ activeVectorStoreId: vectorStoreId });
     } catch (err) {
       console.error('Ошибка сохранения vectorStoreId в store:', err.message);
     }
-  }
-
-  /**
-   * Синхронизация 10 публичных документов в Vector Store без создания дубликатов
-   */
-  async syncPublicKnowledge(client, options = {}) {
-    if (!client) {
-      throw new Error('OpenAI client обязателен для синхронизации Vector Store.');
-    }
-
-    if (!fs.existsSync(PUBLIC_DOCS_DIR)) {
-      throw new Error(`Директория с публичными документами не найдена: ${PUBLIC_DOCS_DIR}`);
-    }
-
-    const filenames = fs.readdirSync(PUBLIC_DOCS_DIR)
-      .filter(f => f.endsWith('.md'))
-      .sort();
-
-    if (filenames.length === 0) {
-      throw new Error(`В папке ${PUBLIC_DOCS_DIR} не найдено Markdown-документов.`);
-    }
-
-    console.log(`[VectorStoreService] Старт синхронизации. Документов в папке: ${filenames.length}`);
-
-    // Получаем или создаем векторное хранилище
-    const vectorStore = await this.getOrCreateVectorStore(client);
-    const vectorStoreId = vectorStore.id;
-
-    // Проверяем существующие файлы в векторном хранилище для исключения дубликатов
-    try {
-      const existingFilesList = await client.vectorStores.files.list(vectorStoreId, { limit: 100 });
-      if (existingFilesList && existingFilesList.data && existingFilesList.data.length > 0) {
-        console.log(`[VectorStoreService] В хранилище найдено ${existingFilesList.data.length} ранее загруженных файлов. Очистка старых версий для исключения дубликатов...`);
-        for (const vsFile of existingFilesList.data) {
-          try {
-            await client.vectorStores.files.del(vectorStoreId, vsFile.id);
-            await client.files.del(vsFile.id).catch(() => {});
-          } catch (delErr) {
-            console.warn(`[VectorStoreService] Предупреждение при удалении файла ${vsFile.id}:`, delErr.message);
-          }
-        }
-      }
-    } catch (checkErr) {
-      console.warn('[VectorStoreService] Не удалось проверить список существующих файлов:', checkErr.message);
-    }
-
-    // Подготовка потоков чтения файлов
-    const fileStreams = filenames.map(fname => {
-      const fullPath = path.join(PUBLIC_DOCS_DIR, fname);
-      return fs.createReadStream(fullPath);
-    });
-
-    console.log(`[VectorStoreService] Загрузка и запуск индексации для ${fileStreams.length} файлов в Vector Store ${vectorStoreId}...`);
-
-    // Загрузка и ожидание завершения индексации
-    const fileBatch = await client.vectorStores.fileBatches.uploadAndPoll(vectorStoreId, {
-      files: fileStreams
-    });
-
-    console.log(`[VectorStoreService] Индексация завершена. Статус: ${fileBatch.status}, файлы:`, fileBatch.file_counts);
-
-    this.saveVectorStoreId(vectorStoreId);
-
-    return {
-      success: fileBatch.status === 'completed',
-      status: fileBatch.status,
-      vectorStoreId,
-      vectorStoreName: vectorStore.name,
-      fileCounts: fileBatch.file_counts,
-      indexedFilesCount: filenames.length,
-      files: filenames
-    };
   }
 
   /**
@@ -189,7 +325,7 @@ class VectorStoreService {
     if (!client) throw new Error('OpenAI client не настроен.');
     const vs = await this.getOrCreateVectorStore(client);
 
-    const testPrompt = query || 'Во сколько заезд и выезд в отеле BURABAY ECO HOTEL?';
+    const testPrompt = query || 'Во сколько заезд и выезд в отеле?';
     const response = await client.responses.create({
       model: store.getSettings().model || 'gpt-4o-mini',
       tools: [{
@@ -211,4 +347,3 @@ class VectorStoreService {
 }
 
 module.exports = new VectorStoreService();
-

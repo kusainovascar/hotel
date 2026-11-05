@@ -20,9 +20,13 @@
 6. Обычные вопросы об отеле разрешены. Например, на вопрос о парковке ответь только о парковке. Не добавляй сведения о номерах, питании и остальных услугах без необходимости.
 7. Если публичных сведений недостаточно, сообщи об этом и задай один уточняющий вопрос. Не выдумывай цены, скидки, наличие номеров и условия.
 
-ПРАВИЛА ПО ТАРИФАМ И ДАТАМ:
+ПРАВИЛА ПО ТАРИФАМ, ДАТАМ И ГРУППОВЫМ РАСЧЁТАМ:
 - Даты трактуй в Asia/Qyzylorda; относительные даты уточняй при неоднозначности.
-- Не выдумывай цены. Расчёт стоимости групп выполняй только инструментом calculate_group_booking. Сообщай, что расчёт предварительный, трансфер не включён и наличие номеров требует подтверждения у отеля. Записи со статусом demo называй демонстрационными.
+- ДАТЫ: НИКОГДА не выдумывай и не подставляй календарные даты заезда и выезда автоматически! Если гость назвал только количество ночей (например, «3 ночи»), передавай в calculate_group_booking параметр nightsCount и явно сообщай гостю, что расчёт ориентировочный без конкретных календарных дат. Если даты не указаны вообще — сначала спроси даты заезда и выезда (YYYY-MM-DD) или количество ночей.
+- РАССЕЛЕНИЕ: Обязательно поясняй количество номеров и точную схему расселения (например: 25 гостей при двухместном расселении — это 13 номеров: 12 двухместных и 1 с одноместным размещением).
+- ТРАНСФЕР: Трансфер НЕ входит в базовую стоимость проживания и рассчитывается индивидуально менеджером в зависимости от маршрута и состава группы. НИКОГДА не утверждай, что трансфер включён в итоговую сумму или бесплатен. Всегда разделяй: 1) включено в смету: проживание и питание; 2) рассчитывается индивидуально: трансфер.
+- НАЛИЧИЕ И СЛЕДУЮЩИЙ ШАГ: Не утверждай наличие свободных номеров без проверки системы бронирования. Всегда сообщай, что расчёт предварительный, а наличие номеров требует подтверждения у отеля. После расчёта обязательно предлагай следующий шаг — оформить предварительную заявку на сайте или связаться с менеджером для подтверждения наличия номеров.
+- Не выдумывай цены. Расчёт стоимости групп выполняй только инструментом calculate_group_booking. Записи со статусом demo называй демонстрационными.
 - Для передачи контактов предложи форму на сайте. Не создавай заявку без явного согласия гостя, имени и телефона.`;
 
   function validateMessage(message) {
@@ -93,16 +97,115 @@
   function today() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Qyzylorda', year:'numeric', month:'2-digit', day:'2-digit' }).format(new Date()); }
   function calculate(params, pricing) {
     if (!pricing || !Number.isFinite(pricing.roomRate) || pricing.roomRate < 0) throw new Error('Тариф не настроен в базе отеля.');
-    const start = day(params.start), end = day(params.end);
-    if (!Number.isFinite(start) || !Number.isFinite(end) || start < day(today()) || end <= start) throw new Error('Укажите действительные будущие даты YYYY-MM-DD; выезд должен быть позже заезда.');
+    let start = null;
+    let end = null;
+    let nights = 0;
+    let isApproximateDates = false;
+    let datesLabel = '';
+
+    if (params.start && params.end) {
+      const s = day(params.start), e = day(params.end);
+      if (!Number.isFinite(s) || !Number.isFinite(e) || s < day(today()) || e <= s) {
+        throw new Error('Укажите действительные будущие даты YYYY-MM-DD; выезд должен быть позже заезда.');
+      }
+      start = params.start;
+      end = params.end;
+      nights = e - s;
+      datesLabel = `${start} — ${end} (${nights} ноч.)`;
+    } else {
+      const rawNights = params.nights || params.nightsCount;
+      if (rawNights && Number.isInteger(Number(rawNights)) && Number(rawNights) >= 1) {
+        nights = Number(rawNights);
+        isApproximateDates = true;
+        datesLabel = `Без фиксированных дат (расчёт на ${nights} ноч.)`;
+      } else {
+        throw new Error('Укажите действительные будущие даты YYYY-MM-DD; выезд должен быть позже заезда.');
+      }
+    }
+
     const guests = Number(params.guests), occupancy = Number(params.occupancy);
     if (!Number.isInteger(guests) || guests < 1 || guests > pricing.maxGuests) throw new Error(`Укажите целое число гостей от 1 до ${pricing.maxGuests}.`);
     if (![1,2].includes(occupancy)) throw new Error('Уточните расселение: по одному или по два гостя в номере.');
     if (!Object.hasOwn(pricing.meals, params.mealKey)) throw new Error('Уточните вариант питания.');
     const meal = pricing.meals[params.mealKey];
     if (!Number.isFinite(meal.rate) || meal.rate < 0) throw new Error('Тариф питания не настроен.');
-    const nights = end-start, rooms = Math.ceil(guests/occupancy), roomCost = rooms*nights*pricing.roomRate, mealCost = guests*nights*meal.rate;
-    return {start:params.start,end:params.end,guests,occupancy,occupancyLabel:`По ${occupancy} гостя в номере`,nights,rooms,roomRate:pricing.roomRate,mealKey:params.mealKey,mealLabel:meal.label,mealRate:meal.rate,roomCost,mealCost,total:roomCost+mealCost,perPerson:Math.round((roomCost+mealCost)/guests),transfer:params.transfer || 'Не выбран',tariffStatus:pricing.status || 'demo',preliminary:true,availabilityChecked:false};
+
+    const rooms = Math.ceil(guests / occupancy);
+    let doubleRooms = 0;
+    let singleRooms = 0;
+    let roomsBreakdown = '';
+
+    if (occupancy === 2) {
+      doubleRooms = Math.floor(guests / 2);
+      singleRooms = guests % 2;
+      if (singleRooms > 0) {
+        roomsBreakdown = `${rooms} ном.: ${doubleRooms} двухместных (по 2 гостя) и ${singleRooms} с одноместным размещением (для 1 гостя)`;
+      } else {
+        roomsBreakdown = `${rooms} двухместных ном. (по 2 гостя в номере)`;
+      }
+    } else {
+      singleRooms = guests;
+      roomsBreakdown = `${rooms} одноместных ном. (по 1 гостю в номере)`;
+    }
+
+    const roomCost = rooms * nights * pricing.roomRate;
+    const mealCost = guests * nights * meal.rate;
+    const total = roomCost + mealCost;
+    const perPerson = Math.round(total / guests);
+
+    const transferRequested = Boolean(
+      params.transfer === 'Требуется' ||
+      params.transferNeeded === true ||
+      (typeof params.transfer === 'string' && /нужен|требуется|да|true/i.test(params.transfer))
+    );
+
+    const includedServices = [
+      `Проживание (${roomsBreakdown}, ${nights} ноч.) — ${new Intl.NumberFormat('ru-RU').format(roomCost)} ₸`,
+      `Питание (${meal.label}) — ${new Intl.NumberFormat('ru-RU').format(mealCost)} ₸`
+    ];
+
+    const additionalServicesOnRequest = [
+      transferRequested
+        ? 'Трансфер: запрошен (рассчитывается индивидуально администратором по маршруту и составу группы, не входит в базовую смету)'
+        : 'Трансфер: не выбран (доступен по запросу, рассчитывается отдельно)',
+      'Конференц-зал и банкетное обслуживание (по запросу)'
+    ];
+
+    return {
+      start: start || '',
+      end: end || '',
+      isApproximateDates,
+      datesLabel,
+      guests,
+      occupancy,
+      occupancyLabel: occupancy === 2 ? 'По 2 гостя в номере' : 'По 1 гостю в номере',
+      doubleRooms,
+      singleRooms,
+      rooms,
+      roomsBreakdown,
+      nights,
+      roomRate: pricing.roomRate,
+      mealKey: params.mealKey,
+      mealLabel: meal.label,
+      mealRate: meal.rate,
+      roomCost,
+      mealCost,
+      total,
+      perPerson,
+      transfer: transferRequested ? 'Требуется (расчёт индивидуально)' : 'Не выбран',
+      transferIncludedInTotal: false,
+      transferStatus: transferRequested
+        ? 'Запрошен (стоимость рассчитывается отдельно администратором, в базовую смету не входит)'
+        : 'Не выбран (рассчитывается отдельно по запросу)',
+      includedServices,
+      additionalServicesOnRequest,
+      availabilityConfirmed: false,
+      availabilityNote: 'Наличие свободных номеров на даты поездки требует обязательного подтверждения отелем.',
+      nextStep: 'Оформите предварительную заявку на сайте или свяжитесь с менеджером отеля для подтверждения наличия номеров.',
+      tariffStatus: pricing.status || 'demo',
+      preliminary: true,
+      availabilityChecked: false
+    };
   }
   const money = n => new Intl.NumberFormat('ru-RU').format(n)+' ₸';
   function fallback(message, context, previous = {}) {
@@ -122,12 +225,16 @@
 
     const alternatives = /то ли|или\s+\d|\d\s*[-–]\s*\d|пятниц.{0,25}или|суббот.{0,25}или/.test(text.replace(/\d{4}-\d{2}-\d{2}/g, ''));
     if (alternatives) {
-      delete state.guests; delete state.start; delete state.end;
+      delete state.guests; delete state.start; delete state.end; delete state.nights;
       return reply('В сообщении есть несколько вариантов поездки. Не буду выбирать их за вас или выдавать точную стоимость. Какое количество гостей взять за основу?');
     }
     const dates = text.match(/\d{4}-\d{2}-\d{2}/g) || [];
     if (dates.length === 2) {state.start=dates[0];state.end=dates[1];}
     else if (dates.length > 0) return reply('Для расчёта нужны две точные даты. Какие даты заезда и выезда в формате YYYY-MM-DD?');
+
+    const nightsMatch = text.match(/(\d+)\s*(?:ноч(?:ей|и|ь)|суто?к)/);
+    if (nightsMatch) state.nights = Number(nightsMatch[1]);
+
     const count = Array.from(text.matchAll(/(\d+)\s*(?:человек|гост(?:ей|я|ь)|участник)/g)).find(match => !/по\s*$/.test(text.slice(0,match.index)));
     if (count) state.guests=Number(count[1]);
     if (/по\s*(1|одному)|одномест/.test(text)) state.occupancy=1;
@@ -136,16 +243,31 @@
     else if (/полный пансион/.test(text)) state.mealKey='full';
     else if (/полупансион|завтрак.{0,15}ужин/.test(text)) state.mealKey='half';
     else if (/завтрак/.test(text)) state.mealKey='breakfast';
-    const calculationIntent = /рассчит|расч[её]т|стоим.{0,30}групп|групп.{0,30}стоим|сколько.{0,30}прожив|групповое проживание/.test(text) || (previous.calculationIntent && (dates.length > 0 || count || /по\s*(1|2|одному|два|двое)|одномест|двухмест|без питания|завтрак|пансион/.test(text)));
+
+    if (/трансфер|такси|встреч.*аэропорт|микроавтобус/.test(text)) {
+      state.transfer = 'Требуется';
+    }
+
+    const calculationIntent = /рассчит|расч[её]т|стоим.{0,30}групп|групп.{0,30}стоим|сколько.{0,30}прожив|групповое проживание/.test(text) || (previous.calculationIntent && (dates.length > 0 || nightsMatch || count || /по\s*(1|2|одному|два|двое)|одномест|двухмест|без питания|завтрак|пансион/.test(text)));
     if (calculationIntent) {
       state.calculationIntent=true;
-      if (!state.start || !state.end) return reply('Какие точные даты заезда и выезда вы планируете (YYYY-MM-DD)?');
+      if (!state.start && !state.end && !state.nights) return reply('Какие точные даты заезда и выезда вы планируете (YYYY-MM-DD) или на сколько ночей нужен расчёт?');
       if (!state.guests) return reply('Сколько гостей будет в группе?');
       if (!state.occupancy) return reply('Как вы хотите разместить гостей: по одному или по два в номере?');
       if (!state.mealKey) return reply('Какой вариант питания нужен: без питания, завтрак, завтрак и ужин или полный пансион?');
       try {
         const result=calculate(state,context.pricing);
-        return reply(`${result.tariffStatus==='verified'?'Предварительный':'Демонстрационный предварительный'} расчёт: ${result.rooms} ном., ${result.nights} ноч. Проживание ${money(result.roomCost)}, питание ${money(result.mealCost)}, всего ${money(result.total)}. Трансфер и дополнительные услуги не включены. Наличие и окончательные условия необходимо подтвердить у отеля.`, {calculation:result});
+        const datesText = result.isApproximateDates
+          ? `(без точных дат, на ${result.nights} ноч.)`
+          : `${result.rooms} ном., ${result.nights} ноч.`;
+
+        const replyContent = `${result.tariffStatus==='verified'?'Предварительный':'Демонстрационный предварительный'} расчёт: ${datesText}. ` +
+          `Схема расселения: ${result.roomsBreakdown}. ` +
+          `Проживание ${money(result.roomCost)}, питание (${result.mealLabel}) ${money(result.mealCost)}, всего ${money(result.total)}. ` +
+          `Трансфер и дополнительные услуги не входят в сумму и рассчитываются отдельно. ` +
+          `Наличие свободных номеров требует подтверждения у отеля. Рекомендуем оформить предварительную заявку менеджеру.`;
+
+        return reply(replyContent, {calculation:result});
       } catch(error) { return reply(error.message); }
     }
     if (/менеджер|оператор|позвон/.test(text)) return reply('Можно подготовить обращение менеджеру через форму. Заявка будет создана только после вашего согласия и успешной отправки. Срок ответа пока не подтверждён.', {actionType:'request_contacts'});

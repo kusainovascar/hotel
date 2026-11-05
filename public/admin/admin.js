@@ -214,40 +214,49 @@ function setupEventListeners() {
     document.getElementById('cfg-prompt').value = defaultPrompt;
   });
 
-  // База знаний: модальное окно
+  // База знаний: модальное окно создания/редактирования
   const kbModal = document.getElementById('kb-modal');
-  document.getElementById('new-kb-btn').addEventListener('click', () => {
+  const kbHistoryModal = document.getElementById('kb-history-modal');
+
+  document.getElementById('new-kb-btn')?.addEventListener('click', () => {
     document.getElementById('kb-modal-title').textContent = 'Добавление статьи базы знаний';
     document.getElementById('kb-id').value = '';
     document.getElementById('kb-category').value = '';
+    document.getElementById('kb-lang').value = 'ru';
     document.getElementById('kb-title').value = '';
     document.getElementById('kb-content').value = '';
     document.getElementById('kb-keywords').value = '';
+    document.getElementById('kb-status').value = 'published';
     kbModal.showModal();
   });
 
-  document.getElementById('close-kb-modal').addEventListener('click', () => kbModal.close());
-  document.getElementById('cancel-kb-btn').addEventListener('click', () => kbModal.close());
+  document.getElementById('close-kb-modal')?.addEventListener('click', () => kbModal.close());
+  document.getElementById('cancel-kb-btn')?.addEventListener('click', () => kbModal.close());
 
-  document.getElementById('kb-form').addEventListener('submit', async (e) => {
+  // Закрытие окна истории
+  document.getElementById('close-kb-history-modal')?.addEventListener('click', () => kbHistoryModal.close());
+  document.getElementById('close-kb-history-btn')?.addEventListener('click', () => kbHistoryModal.close());
+
+  // Фильтры базы знаний
+  document.getElementById('kb-filter-status')?.addEventListener('change', () => renderFilteredKnowledgeBase());
+  document.getElementById('kb-filter-lang')?.addEventListener('change', () => renderFilteredKnowledgeBase());
+
+  // Кнопка синхронизации с OpenAI
+  document.getElementById('kb-sync-btn')?.addEventListener('click', syncKnowledgeBaseWithOpenAI);
+
+  // Кнопка отката Vector Store
+  document.getElementById('kb-rollback-btn')?.addEventListener('click', rollbackVectorStore);
+
+  // Сохранить как черновик (отдельная кнопка)
+  document.getElementById('save-kb-draft-btn')?.addEventListener('click', async () => {
+    document.getElementById('kb-status').value = 'draft';
+    await saveKbArticleFromForm('draft');
+  });
+
+  // Отправка формы (Опубликовать)
+  document.getElementById('kb-form')?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const id = document.getElementById('kb-id').value;
-    const category = document.getElementById('kb-category').value.trim();
-    const title = document.getElementById('kb-title').value.trim();
-    const content = document.getElementById('kb-content').value.trim();
-    const keywords = document.getElementById('kb-keywords').value.trim();
-
-    try {
-      await apiFetch('/api/admin/knowledge-base', {
-        method: 'POST',
-        body: JSON.stringify({ id, category, title, content, keywords })
-      });
-      kbModal.close();
-      showToast('Статья успешно сохранена');
-      loadKnowledgeBase();
-    } catch (err) {
-      showToast(err.message, true);
-    }
+    await saveKbArticleFromForm(document.getElementById('kb-status').value || 'published');
   });
 
   // Экспорт заявок в CSV
@@ -601,35 +610,168 @@ function renderRecentLeads(leads) {
   `).join('');
 }
 
-// База знаний
+// База знаний — Управление статьями и OpenAI Vector Store
 async function loadKnowledgeBase() {
   try {
-    const data = await apiFetch('/api/admin/knowledge-base');
-    state.knowledgeBase = data.articles;
-    renderKnowledgeBase(data.articles);
+    const [articlesData, syncData] = await Promise.all([
+      apiFetch('/api/admin/articles').catch(() => apiFetch('/api/admin/knowledge-base')),
+      apiFetch('/api/admin/sync-status').catch(() => null)
+    ]);
+
+    state.knowledgeBase = articlesData.articles || [];
+    renderSyncStatus(syncData);
+    renderFilteredKnowledgeBase();
   } catch (err) {
     console.error('Ошибка загрузки базы знаний:', err);
   }
 }
 
+function renderSyncStatus(syncData) {
+  const badge = document.getElementById('kb-sync-status-badge');
+  const vsIdEl = document.getElementById('kb-active-vs-id');
+  const lastSyncEl = document.getElementById('kb-last-sync-time');
+  const errorBox = document.getElementById('kb-sync-error');
+  const rollbackBtn = document.getElementById('kb-rollback-btn');
+
+  if (!badge) return;
+
+  const currentVsId = syncData?.activeVectorStoreId || state.config?.vectorStoreId || '—';
+  vsIdEl.textContent = currentVsId;
+
+  if (syncData?.lastSyncAt) {
+    lastSyncEl.textContent = formatDate(syncData.lastSyncAt);
+  } else {
+    lastSyncEl.textContent = 'Ещё не выполнялась';
+  }
+
+  if (syncData?.status === 'success') {
+    badge.className = 'badge badge-completed';
+    badge.textContent = `✅ Синхронизировано (${syncData.indexedFilesCount || 0} документов)`;
+  } else if (syncData?.status === 'in_progress') {
+    badge.className = 'badge badge-in_progress';
+    badge.textContent = '⏳ Индексация в процессе...';
+  } else if (syncData?.status === 'error') {
+    badge.className = 'badge badge-new';
+    badge.style.background = '#fee2e2';
+    badge.style.color = '#b91c1c';
+    badge.textContent = '⚠️ Ошибка синхронизации';
+  } else {
+    badge.className = 'badge';
+    badge.style.background = '#e2e8f0';
+    badge.style.color = '#475569';
+    badge.textContent = 'Готово к синхронизации';
+  }
+
+  if (syncData?.lastError) {
+    errorBox.style.display = 'block';
+    errorBox.textContent = `Ошибка синхронизации: ${syncData.lastError}`;
+  } else {
+    errorBox.style.display = 'none';
+  }
+
+  if (syncData?.previousVectorStoreId) {
+    rollbackBtn.style.display = 'inline-block';
+    rollbackBtn.title = `Откатить к предыдущему Vector Store: ${syncData.previousVectorStoreId}`;
+  } else {
+    rollbackBtn.style.display = 'none';
+  }
+}
+
+function renderFilteredKnowledgeBase() {
+  const statusFilter = document.getElementById('kb-filter-status')?.value || 'all';
+  const langFilter = document.getElementById('kb-filter-lang')?.value || 'all';
+
+  let filtered = state.knowledgeBase;
+  if (statusFilter !== 'all') {
+    filtered = filtered.filter(a => a.status === statusFilter);
+  }
+  if (langFilter !== 'all') {
+    filtered = filtered.filter(a => (a.lang || 'ru') === langFilter);
+  }
+
+  renderKnowledgeBase(filtered);
+}
+
 function renderKnowledgeBase(articles) {
   const container = document.getElementById('kb-container');
   if (!articles || articles.length === 0) {
-    container.innerHTML = `<div class="text-muted">База знаний пуста. Добавьте первую статью.</div>`;
+    container.innerHTML = `<div class="text-muted text-center" style="grid-column: 1/-1; padding: 32px 0;">Статей по выбранному фильтру не найдено. Нажмите «+ Добавить статью».</div>`;
     return;
   }
 
-  container.innerHTML = articles.map(item => `
-    <div class="kb-card">
-      <div class="kb-card-category">${escapeHtml(item.category)}</div>
-      <div class="kb-card-title">${escapeHtml(item.title)}</div>
-      <div class="kb-card-content">${escapeHtml(item.content)}</div>
-      <div class="kb-card-actions">
-        <button class="btn btn-sm btn-outline" onclick="editKbItem('${item.id}')">✏️ Редактировать</button>
-        <button class="btn btn-sm btn-danger-outline" onclick="deleteKbItem('${item.id}')">🗑️</button>
+  container.innerHTML = articles.map(item => {
+    const isDraft = item.status === 'draft';
+    const langBadge = (item.lang || 'ru').toUpperCase();
+    const versionBadge = `v${item.version || 1}`;
+    const historyCount = Array.isArray(item.history) ? item.history.length : 0;
+
+    return `
+      <div class="kb-card" style="${isDraft ? 'border-style: dashed; background: #fdfefe;' : ''}">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div class="kb-card-category" style="margin: 0;">${escapeHtml(item.category)}</div>
+          <div style="display: flex; gap: 6px; align-items: center;">
+            <span class="badge" style="background:#e0f2fe; color:#0369a1; font-size:10px; padding:2px 6px;">${langBadge}</span>
+            <span class="badge" style="background:#f1f5f9; color:#475569; font-size:10px; padding:2px 6px;">${versionBadge}</span>
+            <span class="badge ${isDraft ? 'badge-new' : 'badge-completed'}" style="${isDraft ? 'background:#fef3c7; color:#92400e;' : ''}">
+              ${isDraft ? '📝 Черновик' : '✅ Опубликовано'}
+            </span>
+          </div>
+        </div>
+        <div class="kb-card-title">${escapeHtml(item.title)}</div>
+        <div class="kb-card-content">${escapeHtml(item.content)}</div>
+        <div style="font-size: 11px; color: var(--muted); margin-bottom: 12px;">
+          Обновлено: ${formatDate(item.updatedAt)}
+        </div>
+        <div class="kb-card-actions" style="flex-wrap: wrap; justify-content: space-between;">
+          <div style="display: flex; gap: 6px;">
+            <button class="btn btn-sm btn-outline" onclick="editKbItem('${item.id}')" title="Редактировать статью">✏️</button>
+            ${isDraft
+              ? `<button class="btn btn-sm btn-primary" onclick="publishKbItem('${item.id}')" title="Опубликовать статью">📢 Опубликовать</button>`
+              : `<button class="btn btn-sm btn-secondary" onclick="unpublishKbItem('${item.id}')" title="Перевести в черновик">📝 В черновик</button>`
+            }
+            <button class="btn btn-sm btn-outline" onclick="viewKbHistory('${item.id}')" title="История версий">
+              🕒 История ${historyCount > 0 ? `(${historyCount})` : ''}
+            </button>
+          </div>
+          <button class="btn btn-sm btn-danger-outline" onclick="deleteKbItem('${item.id}')" title="Удалить статью">🗑️</button>
+        </div>
       </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+}
+
+async function saveKbArticleFromForm(statusToSave = 'published') {
+  const id = document.getElementById('kb-id').value;
+  const category = document.getElementById('kb-category').value.trim();
+  const lang = document.getElementById('kb-lang').value;
+  const title = document.getElementById('kb-title').value.trim();
+  const content = document.getElementById('kb-content').value.trim();
+  const keywords = document.getElementById('kb-keywords').value.trim();
+
+  if (!title || !content) {
+    showToast('Заголовок и содержимое статьи обязательны', true);
+    return;
+  }
+
+  try {
+    await apiFetch('/api/admin/articles', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: id || undefined,
+        category: category || 'Общее',
+        lang,
+        title,
+        content,
+        keywords,
+        status: statusToSave
+      })
+    });
+    document.getElementById('kb-modal').close();
+    showToast(statusToSave === 'published' ? 'Статья успешно опубликована!' : 'Черновик статьи сохранён!');
+    loadKnowledgeBase();
+  } catch (err) {
+    showToast(err.message, true);
+  }
 }
 
 window.editKbItem = function(id) {
@@ -639,23 +781,153 @@ window.editKbItem = function(id) {
   document.getElementById('kb-modal-title').textContent = 'Редактирование статьи базы знаний';
   document.getElementById('kb-id').value = item.id;
   document.getElementById('kb-category').value = item.category;
+  document.getElementById('kb-lang').value = item.lang || 'ru';
   document.getElementById('kb-title').value = item.title;
   document.getElementById('kb-content').value = item.content;
   document.getElementById('kb-keywords').value = (item.keywords || []).join(', ');
+  document.getElementById('kb-status').value = item.status || 'published';
 
   document.getElementById('kb-modal').showModal();
 };
 
-window.deleteKbItem = async function(id) {
-  if (!confirm('Удалить эту статью из базы знаний ИИ?')) return;
+window.publishKbItem = async function(id) {
   try {
-    await apiFetch(`/api/admin/knowledge-base/${id}`, { method: 'DELETE' });
+    await apiFetch(`/api/admin/articles/${id}/publish`, { method: 'POST' });
+    showToast('Статья опубликована! Теперь она доступна ИИ.');
+    loadKnowledgeBase();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+};
+
+window.unpublishKbItem = async function(id) {
+  try {
+    await apiFetch(`/api/admin/articles/${id}/unpublish`, { method: 'POST' });
+    showToast('Статья снята с публикации и переведена в черновик.');
+    loadKnowledgeBase();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+};
+
+window.viewKbHistory = async function(id) {
+  const modal = document.getElementById('kb-history-modal');
+  const titleEl = document.getElementById('kb-history-modal-title');
+  const subEl = document.getElementById('kb-history-modal-subtitle');
+  const listEl = document.getElementById('kb-history-list');
+
+  try {
+    const data = await apiFetch(`/api/admin/articles/${id}`);
+    const article = data.article;
+    if (!article) return;
+
+    titleEl.textContent = `История версий: «${article.title}»`;
+    subEl.textContent = `Текущая версия: v${article.version || 1} · Статус: ${article.status === 'published' ? 'Опубликовано' : 'Черновик'}`;
+
+    const history = article.history || [];
+    if (history.length === 0) {
+      listEl.innerHTML = `<div class="text-muted text-center p-16">У этой статьи пока нет предыдущих версий. При каждом редактировании сохраняется снимок.</div>`;
+    } else {
+      listEl.innerHTML = history.map(h => `
+        <div style="border: 1px solid var(--line); border-radius: 6px; padding: 12px; background: #fafbf9;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <div>
+              <span class="badge" style="background:#e0f2fe; color:#0369a1; font-weight:600;">Версия ${h.version}</span>
+              <span class="badge" style="font-size:11px;">${h.status === 'published' ? 'Опубликована' : 'Черновик'}</span>
+            </div>
+            <small class="text-muted">${formatDate(h.updatedAt)}</small>
+          </div>
+          <div style="font-weight: 600; font-size: 13px; margin-bottom: 4px;">${escapeHtml(h.title)}</div>
+          <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px; line-height: 1.4;">
+            ${escapeHtml(h.content.slice(0, 160))}${h.content.length > 160 ? '...' : ''}
+          </div>
+          <button class="btn btn-sm btn-outline" onclick="restoreKbVersion('${article.id}', ${h.version})">
+            ↩️ Восстановить версию ${h.version}
+          </button>
+        </div>
+      `).join('');
+    }
+
+    modal.showModal();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+};
+
+window.restoreKbVersion = async function(id, version) {
+  if (!confirm(`Восстановить версию ${version}? Текущее состояние сохранится в историю.`)) return;
+
+  try {
+    await apiFetch(`/api/admin/articles/${id}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({ version })
+    });
+    document.getElementById('kb-history-modal').close();
+    showToast(`Версия ${version} успешно восстановлена!`);
+    loadKnowledgeBase();
+  } catch (err) {
+    showToast(err.message, true);
+  }
+};
+
+window.deleteKbItem = async function(id) {
+  if (!confirm('Удалить эту статью из базы знаний?')) return;
+  try {
+    await apiFetch(`/api/admin/articles/${id}`, { method: 'DELETE' });
     showToast('Статья удалена');
     loadKnowledgeBase();
   } catch (err) {
     showToast(err.message, true);
   }
 };
+
+async function syncKnowledgeBaseWithOpenAI() {
+  const syncBtn = document.getElementById('kb-sync-btn');
+  if (!confirm('Запустить синхронизацию опубликованных статей с OpenAI Vector Store?\n\nБудет создан новый Vector Store, загружены актуальные опубликованные статьи, выполнен контрольный поиск и только после успешной проверки активировано новое хранилище.')) {
+    return;
+  }
+
+  syncBtn.disabled = true;
+  const originalText = syncBtn.textContent;
+  syncBtn.textContent = '⏳ Синхронизация и проверка...';
+  showToast('Синхронизация с OpenAI начата. Пожалуйста, подождите...');
+
+  try {
+    const res = await apiFetch('/api/admin/vector-store/sync', { method: 'POST' });
+    if (res.success) {
+      showToast(`✅ Успешно синхронизировано! Индексировано файлов: ${res.indexedFilesCount}. Active VS: ${res.vectorStoreId}`);
+    } else {
+      showToast(`Ошибка синхронизации: ${res.error || res.message}`, true);
+    }
+    loadKnowledgeBase();
+    loadConfig();
+  } catch (err) {
+    showToast(`Ошибка: ${err.message}`, true);
+    loadKnowledgeBase();
+  } finally {
+    syncBtn.disabled = false;
+    syncBtn.textContent = originalText;
+  }
+}
+
+async function rollbackVectorStore() {
+  if (!confirm('Вы действительно хотите откатить Vector Store к предыдущей проверенной версии?')) {
+    return;
+  }
+
+  try {
+    const res = await apiFetch('/api/admin/vector-store/rollback', { method: 'POST' });
+    if (res.success) {
+      showToast(`Откат выполнен успешно! Активный Vector Store: ${res.activeVectorStoreId}`);
+      loadKnowledgeBase();
+      loadConfig();
+    } else {
+      showToast(`Ошибка отката: ${res.error}`, true);
+    }
+  } catch (err) {
+    showToast(`Ошибка: ${err.message}`, true);
+  }
+}
 
 // Заявки клиентов
 async function loadLeads() {

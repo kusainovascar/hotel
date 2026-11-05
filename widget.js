@@ -299,19 +299,30 @@
     const totalFormatted = (calc.total || 0).toLocaleString('ru-RU') + ' ₸';
     const perPersonFormatted = (calc.perPerson || 0).toLocaleString('ru-RU') + ' ₸';
 
+    const datesLabel = calc.isApproximateDates || !calc.start || !calc.end
+      ? `Ориентировочный расчёт (${calc.nights} ноч.)`
+      : `${calc.start} — ${calc.end} (${calc.nights} ноч.)`;
+
+    const roomsText = calc.roomsBreakdown || `${calc.rooms} ном. / ${calc.guests} гостей`;
+    const transferText = calc.transferStatus || (calc.transfer === 'Требуется' ? 'Запрошен (расчёт отдельно)' : 'Не выбран (по запросу)');
+
     card.innerHTML = `
       <div class="wgb-calc-title">📊 Предварительный расчёт WGB</div>
-      <div class="wgb-calc-row"><span>Даты:</span> <strong>${calc.start} — ${calc.end} (${calc.nights} ноч.)</strong></div>
-      <div class="wgb-calc-row"><span>Гостей / Номеров:</span> <strong>${calc.guests} гостей / ${calc.rooms} ном.</strong></div>
+      <div class="wgb-calc-row"><span>Даты поездки:</span> <strong>${datesLabel}</strong></div>
+      <div class="wgb-calc-row"><span>Расселение:</span> <strong>${roomsText}</strong></div>
       <div class="wgb-calc-row"><span>Проживание (${calc.roomRate?.toLocaleString('ru-RU')} ₸/сут):</span> <strong>${roomTotalFormatted}</strong></div>
       <div class="wgb-calc-row"><span>Питание (${calc.mealLabel || 'Без питания'}):</span> <strong>${mealTotalFormatted}</strong></div>
+      <div class="wgb-calc-row"><span>Трансфер:</span> <strong style="font-size:11px; color:var(--wgb-muted);">${transferText}</strong></div>
       <div class="wgb-calc-total">
-        <span>ИТОГО:</span>
+        <span>ИТОГО В СМЕТЕ:</span>
         <span>${totalFormatted} <small>(${perPersonFormatted}/чел)</small></span>
       </div>
+      <div style="font-size:11px; line-height:1.3; color:#92400e; background:#fef3c7; padding:6px 8px; border-radius:6px; margin:8px 0;">
+        ⚠️ Расчёт предварительный. Наличие номеров требует подтверждения отелем.
+      </div>
       <div class="wgb-calc-action">
+        <button type="button" class="wgb-calc-btn" id="wgb-book-calc-btn">Оформить заявку менеджеру</button>
         <button type="button" class="wgb-calc-btn outline" id="wgb-apply-calc-btn">В калькулятор сайта</button>
-        <button type="button" class="wgb-calc-btn" id="wgb-book-calc-btn">Запросить условия</button>
       </div>
     `;
 
@@ -347,7 +358,8 @@
 
     // Оформить бронь
     card.querySelector('#wgb-book-calc-btn')?.addEventListener('click', () => {
-      showLeadFormCard(`Бронирование группы (${calc.guests} гостей, ${calc.start} - ${calc.end})`, calc);
+      const datesLead = calc.start && calc.end ? `${calc.start} - ${calc.end}` : `на ${calc.nights} ноч.`;
+      showLeadFormCard(`Бронирование группы (${calc.guests} гостей, ${datesLead})`, calc);
     });
 
     return card;
